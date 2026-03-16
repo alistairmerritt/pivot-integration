@@ -1,0 +1,17 @@
+{
+  "domain": "pivot",
+  "name": "Pivot",
+  "version": "0.4.1",
+  "config_flow": true,
+  "integration_type": "device",
+  "documentation": "https://alistairmerritt.github.io/pivot",
+  "issue_tracker": "https://github.com/alistairmerritt/pivot-integration/issues",
+  "dependencies": [
+    "esphome"
+  ],
+  "codeowners": [
+    "@alistairmerritt"
+  ],
+  "iot_class": "local_push",
+  "requirements": []
+}

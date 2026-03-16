@@ -1,0 +1,7 @@
+{
+  "name": "Pivot",
+  "description": "Companion integration for Home Assistant Voice Preview Edition devices running Pivot firmware. Automatically provisions all required entities for banked control mode.",
+  "render_readme": true,
+  "homeassistant": "2024.1.0",
+  "iot_class": "local_push"
+}

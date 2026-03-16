@@ -1,0 +1,131 @@
+blueprint:
+  name: "Pivot — Announce Bank"
+  description: >
+    Announces the name of the active bank's assigned entity via TTS when the bank
+    changes on a Pivot device, or when the button is triple-pressed.
+
+    Requires the Pivot integration and Home Assistant Cloud (Nabu Casa) or another
+    TTS provider.
+  domain: automation
+  input:
+    active_bank_entity:
+      name: Active Bank Number
+      description: "The Active Bank number entity for your Pivot device, e.g. `number.ha_voice_1_active_bank`."
+      selector:
+        entity:
+          domain: number
+
+    announce_bank_switch:
+      name: Announce Bank Switch
+      description: "The Announce Bank switch for your Pivot device, e.g. `switch.ha_voice_1_announce_bank`."
+      selector:
+        entity:
+          domain: switch
+
+    button_event_entity:
+      name: Button Press Event Entity
+      description: "The event entity for the VPE button, e.g. `event.home_assistant_voice_094152_button_press`."
+      selector:
+        entity:
+          domain: event
+
+    bank_0_entity:
+      name: Bank 1 Entity (text)
+      description: "The Bank 1 Entity text entity, e.g. `text.ha_voice_1_bank_0_entity`."
+      selector:
+        entity:
+          domain: text
+
+    bank_1_entity:
+      name: Bank 2 Entity (text)
+      description: "The Bank 2 Entity text entity, e.g. `text.ha_voice_1_bank_1_entity`."
+      selector:
+        entity:
+          domain: text
+
+    bank_2_entity:
+      name: Bank 3 Entity (text)
+      description: "The Bank 3 Entity text entity, e.g. `text.ha_voice_1_bank_2_entity`."
+      selector:
+        entity:
+          domain: text
+
+    bank_3_entity:
+      name: Bank 4 Entity (text)
+      description: "The Bank 4 Entity text entity, e.g. `text.ha_voice_1_bank_3_entity`."
+      selector:
+        entity:
+          domain: text
+
+    media_player_entity:
+      name: Media Player
+      description: "The VPE media player to speak through."
+      selector:
+        entity:
+          domain: media_player
+
+    tts_engine:
+      name: TTS Engine
+      description: "TTS service entity to use, e.g. `tts.home_assistant_cloud`."
+      default: tts.home_assistant_cloud
+      selector:
+        entity:
+          domain: tts
+
+variables:
+  tts_engine: !input tts_engine
+  media_player_entity: !input media_player_entity
+  active_bank_entity: !input active_bank_entity
+  bank_0_entity: !input bank_0_entity
+  bank_1_entity: !input bank_1_entity
+  bank_2_entity: !input bank_2_entity
+  bank_3_entity: !input bank_3_entity
+
+trigger:
+  - trigger: state
+    entity_id: !input button_event_entity
+    id: button_press
+
+  - trigger: state
+    entity_id: !input active_bank_entity
+    id: bank_change
+
+condition:
+  - condition: state
+    entity_id: !input announce_bank_switch
+    state: "on"
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: button_press
+          - condition: template
+            value_template: >
+              {{ trigger.to_state.attributes.get('event_type') == 'triple_press' }}
+        sequence: &speak_sequence
+          - variables:
+              bank: "{{ states(active_bank_entity) | int - 1 }}"
+              bank_entity: >
+                {% set entities = [
+                  states(bank_0_entity),
+                  states(bank_1_entity),
+                  states(bank_2_entity),
+                  states(bank_3_entity)
+                ] %}
+                {{ entities[bank] }}
+              entity_name: >
+                {{ state_attr(bank_entity, 'friendly_name') or bank_entity }}
+          - action: tts.speak
+            target:
+              entity_id: !input tts_engine
+            data:
+              media_player_entity_id: !input media_player_entity
+              message: "{{ entity_name }}"
+
+      - conditions:
+          - condition: trigger
+            id: bank_change
+        sequence: *speak_sequence
+
+mode: single
