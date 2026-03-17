@@ -1,0 +1,188 @@
+blueprint:
+  name: "Pivot — Bank Control"
+  description: >
+    Handles knob control for a Pivot device:
+
+    1. **Knob turn** — applies the active bank's value to its assigned entity
+       (brightness, volume, fan speed, temperature, cover position).
+
+    2. **Bank switch** — when the active bank changes, syncs the bank value
+       from the current state of the newly active entity, so the knob always
+       starts from the entity's real current value.
+
+    Scenes and scripts are passive — knob does nothing for those domains.
+  domain: automation
+  input:
+    active_bank_entity:
+      name: Active Bank Number
+      description: "e.g. `number.ha_voice_1_active_bank`"
+      selector:
+        entity:
+          domain: number
+
+    bank_0_entity:
+      name: Bank 1 Entity (text)
+      description: "e.g. `text.ha_voice_1_bank_0_entity`"
+      selector:
+        entity:
+          domain: text
+
+    bank_1_entity:
+      name: Bank 2 Entity (text)
+      selector:
+        entity:
+          domain: text
+
+    bank_2_entity:
+      name: Bank 3 Entity (text)
+      selector:
+        entity:
+          domain: text
+
+    bank_3_entity:
+      name: Bank 4 Entity (text)
+      selector:
+        entity:
+          domain: text
+
+    bank_0_value:
+      name: Bank 1 Value (number)
+      description: "e.g. `number.ha_voice_1_bank_0_value`"
+      selector:
+        entity:
+          domain: number
+
+    bank_1_value:
+      name: Bank 2 Value (number)
+      selector:
+        entity:
+          domain: number
+
+    bank_2_value:
+      name: Bank 3 Value (number)
+      selector:
+        entity:
+          domain: number
+
+    bank_3_value:
+      name: Bank 4 Value (number)
+      selector:
+        entity:
+          domain: number
+
+variables:
+  active_bank_entity: !input active_bank_entity
+  bank_0_entity: !input bank_0_entity
+  bank_1_entity: !input bank_1_entity
+  bank_2_entity: !input bank_2_entity
+  bank_3_entity: !input bank_3_entity
+  bank_0_value: !input bank_0_value
+  bank_1_value: !input bank_1_value
+  bank_2_value: !input bank_2_value
+  bank_3_value: !input bank_3_value
+
+trigger:
+  - trigger: state
+    entity_id:
+      - !input bank_0_value
+      - !input bank_1_value
+      - !input bank_2_value
+      - !input bank_3_value
+    id: knob_turn
+
+  - trigger: state
+    entity_id: !input active_bank_entity
+    id: bank_switch
+
+condition:
+  - condition: template
+    value_template: "{{ trigger.to_state.state != trigger.from_state.state }}"
+
+action:
+  - variables:
+      bank: "{{ states(active_bank_entity) | int - 1 }}"
+      bank_entity: >
+        {% set entities = [
+          states(bank_0_entity),
+          states(bank_1_entity),
+          states(bank_2_entity),
+          states(bank_3_entity)
+        ] %}
+        {{ entities[bank] }}
+      bank_value_entity: >
+        {% set values = [bank_0_value, bank_1_value, bank_2_value, bank_3_value] %}
+        {{ values[bank] }}
+      domain: "{{ bank_entity.split('.')[0] if '.' in bank_entity else '' }}"
+
+  - choose:
+
+      # ── Knob turned: apply value → entity ──────────────────────────────
+      - conditions: "{{ trigger.id == 'knob_turn' }}"
+        sequence:
+          - variables:
+              value: "{{ states(bank_value_entity) | float }}"
+          - choose:
+              - conditions: "{{ domain == 'light' }}"
+                sequence:
+                  - action: light.turn_on
+                    target:
+                      entity_id: "{{ bank_entity }}"
+                    data:
+                      brightness_pct: "{{ value }}"
+              - conditions: "{{ domain == 'media_player' }}"
+                sequence:
+                  - action: media_player.volume_set
+                    target:
+                      entity_id: "{{ bank_entity }}"
+                    data:
+                      volume_level: "{{ value / 100 }}"
+              - conditions: "{{ domain == 'fan' }}"
+                sequence:
+                  - action: fan.set_percentage
+                    target:
+                      entity_id: "{{ bank_entity }}"
+                    data:
+                      percentage: "{{ value }}"
+              - conditions: "{{ domain == 'climate' }}"
+                sequence:
+                  - action: climate.set_temperature
+                    target:
+                      entity_id: "{{ bank_entity }}"
+                    data:
+                      temperature: "{{ (16 + (value / 100 * 14)) | round(1) }}"
+              - conditions: "{{ domain == 'cover' }}"
+                sequence:
+                  - action: cover.set_cover_position
+                    target:
+                      entity_id: "{{ bank_entity }}"
+                    data:
+                      position: "{{ value }}"
+
+      # ── Bank switched: sync value ← entity ─────────────────────────────
+      - conditions: "{{ trigger.id == 'bank_switch' }}"
+        sequence:
+          - variables:
+              synced_value: >
+                {% if domain == 'light' %}
+                  {{ (state_attr(bank_entity, 'brightness') | float(0) / 255 * 100) | round(0) }}
+                {% elif domain == 'fan' %}
+                  {{ state_attr(bank_entity, 'percentage') | float(0) | round(0) }}
+                {% elif domain == 'climate' %}
+                  {{ ((state_attr(bank_entity, 'temperature') | float(16) - 16) / 14 * 100) | round(0) }}
+                {% elif domain == 'media_player' %}
+                  {{ (state_attr(bank_entity, 'volume_level') | float(0) * 100) | round(0) }}
+                {% elif domain == 'cover' %}
+                  {{ state_attr(bank_entity, 'current_position') | float(0) | round(0) }}
+                {% else %}
+                  {{ states(bank_value_entity) }}
+                {% endif %}
+          - condition: template
+            value_template: >
+              {{ domain in ['light', 'fan', 'climate', 'media_player', 'cover'] }}
+          - action: number.set_value
+            target:
+              entity_id: "{{ bank_value_entity }}"
+            data:
+              value: "{{ synced_value }}"
+
+mode: restart

@@ -1,0 +1,102 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Select ESPHome Device",
+        "data": {
+          "device_id": "ESPHome Device"
+        }
+      },
+      "confirm": {
+        "title": "Confirm Pivot Firmware",
+        "description": "Make sure **{device_name}** is running the Pivot firmware.\n\nEnter the `device_suffix` you set in your firmware YAML. This must be unique across all your Pivot devices. It determines your entity IDs and cannot be changed without reflashing the firmware.",
+        "data": {
+          "firmware_confirmed": "I have flashed the Pivot firmware",
+          "device_suffix": "Device Suffix"
+        },
+        "data_description": {
+          "device_suffix": "Must match `device_suffix` in your firmware YAML exactly, e.g. `lounge` or `ha_voice_1`"
+        }
+      },
+      "options": {
+        "title": "Settings",
+        "description": "Choose how Pivot handles the scripts and automations it may need.\n\n**Automatic setup:** Recommended. Pivot creates and manages the scripts and automations it needs for you. This is the easiest option and works out of the box with your assigned bank entities.\n\n**Blueprint setup:** Pivot adds blueprint files to your Home Assistant configuration. You then create the automations and script yourself from those blueprints in the Home Assistant UI.\n\n**Manual setup:** Pivot does not create any files for you. You create your own scripts and automations from scratch using Pivot's events and entities. Advanced users only.",
+        "data": {
+          "management_mode": "Setup mode",
+          "announcements": "Speak bank and mode changes",
+          "tts_entity": "Text-to-speech service",
+          "media_player_entity": "Speaker"
+        },
+        "data_description": {
+          "management_mode": "Please note: If you switch away from Automatic setup after setting it up initially, Pivot may remove any scripts and automations it created for you.\n\nChoosing Automatic setup does not lock you into Pivot's built-in automations. You can still create your own custom automations at any time.",
+          "announcements": "When turned on, Pivot says the current bank and mode when you switch banks or change control mode.",
+          "tts_entity": "Choose the service that creates the spoken announcement.",
+          "media_player_entity": "Choose the media player that will play the announcement."
+        }
+      },
+      "banks_initial": {
+        "title": "Assign entities to banks",
+        "description": "Assign a Home Assistant entity to each bank. You can leave banks empty and assign them later.",
+        "data": {
+          "bank_0_entity": "Bank 1 entity",
+          "bank_1_entity": "Bank 2 entity",
+          "bank_2_entity": "Bank 3 entity",
+          "bank_3_entity": "Bank 4 entity"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "no_esphome_devices": "No ESPHome devices found. Add your VPE in the ESPHome integration first.",
+      "suffix_collision": "Another Pivot entry already uses this device suffix."
+    },
+    "error": {
+      "device_not_found": "Device not found in registry.",
+      "cannot_read_device_name": "Could not read ESPHome device name.",
+      "must_confirm_firmware": "You must confirm the firmware is flashed before continuing.",
+      "suffix_collision": "This device suffix is already in use by another Pivot device.",
+      "esphome_name_required": "Please enter the ESPHome device name.",
+      "suffix_required": "Device suffix is required."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Settings",
+        "description": "Choose how Pivot handles the scripts and automations it may need.\n\n**Automatic setup:** Recommended. Pivot creates and manages the scripts and automations it needs for you. This is the easiest option and works out of the box with your assigned bank entities.\n\n**Blueprint setup:** Pivot adds blueprint files to your Home Assistant configuration. You then create the automations and script yourself from those blueprints in the Home Assistant UI.\n\n**Manual setup:** Pivot does not create any files for you. You create your own scripts and automations from scratch using Pivot's events and entities. Advanced users only.",
+        "data": {
+          "management_mode": "Setup mode",
+          "announcements": "Speak bank and mode changes",
+          "tts_entity": "Text-to-speech service",
+          "media_player_entity": "Speaker"
+        },
+        "data_description": {
+          "management_mode": "Please note: If you switch away from Automatic setup after setting it up initially, Pivot may remove any scripts and automations it created for you.\n\nChoosing Automatic setup does not lock you into Pivot's built-in automations. You can still create your own custom automations at any time.",
+          "announcements": "When turned on, Pivot says the current bank and mode when you switch banks or change control mode.",
+          "tts_entity": "Choose the service that creates the spoken announcement.",
+          "media_player_entity": "Choose the media player that will play the announcement."
+        }
+      },
+      "mode_warning": {
+        "title": "Changing setup mode",
+        "description": "You are switching away from **Automatic** setup.\n\nPivot will remove the scripts and automations it created for you. You will need to set up your own, or use blueprints.\n\nTick the box below to confirm.",
+        "data": {
+          "confirm_mode_change": "I understand \u2014 remove Pivot-managed files and switch mode"
+        }
+      },
+      "banks": {
+        "title": "Bank Entity Assignment",
+        "description": "Assign a Home Assistant entity to each bank. All banks are optional \u2014 leave any empty to skip it.\n\n**How it works:** in Control Mode, turn the knob to adjust the entity (brightness, volume, fan speed, etc.) and press the button to toggle it on/off.\n\n**Scenes & scripts** activate on button press only \u2014 the knob does nothing for those.\n\nSupported entities: lights, switches, fans, covers, climate, media players, scenes, scripts.",
+        "data": {
+          "bank_0_entity": "Bank 1",
+          "bank_1_entity": "Bank 2",
+          "bank_2_entity": "Bank 3",
+          "bank_3_entity": "Bank 4"
+        },
+        "data_description": {
+          "bank_3_entity": "Bank assignments are stored as entities and work in all setup modes. However, the knob and button will only control your assigned entities automatically if you are using Automatic or Blueprint setup. In Manual setup, you will need to build your own automations using Pivot's fired events to act on these assignments."
+        }
+      }
+    }
+  }
+}
