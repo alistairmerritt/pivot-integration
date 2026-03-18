@@ -342,6 +342,11 @@ def _setup_bank_control_listener(
         if bank_idx is None:
             return
 
+        # Don't apply to entity when this bank is being synced from an external
+        # state change — prevents a write-back loop.
+        if bank_idx in _syncing_from_entity:
+            return
+
         # Only act when control mode is active
         control_mode_state = hass.states.get(f"switch.{suffix}_control_mode")
         if control_mode_state is None or control_mode_state.state != "on":
@@ -432,17 +437,86 @@ def _setup_bank_control_listener(
             _sync_value_from_entity(hass, domain, bank_entity, value_entity_id)
         )
 
+    # ── Live entity sync ────────────────────────────────────────────────────
+    # Keeps the LED gauge in sync when an assigned entity is changed externally
+    # (e.g. voice command, another dashboard, or a physical switch).
+    #
+    # _syncing_from_entity: set of bank indices currently being synced FROM an
+    # external entity change. Checked by _on_bank_value_changed to prevent it
+    # writing the value straight back to the entity (feedback loop).
+    _syncing_from_entity: set = set()
+
+    @callback
+    def _on_assigned_entity_changed(event) -> None:
+        """Sync bank value when an assigned entity changes externally."""
+        changed_entity_id = event.data.get("entity_id", "")
+        new_state = event.data.get("new_state")
+
+        if new_state is None or new_state.state in ("unknown", "unavailable"):
+            return
+
+        for bank in range(NUM_BANKS):
+            text_state = hass.states.get(f"text.{suffix}_bank_{bank}_entity")
+            if text_state is None or text_state.state != changed_entity_id:
+                continue
+            domain = changed_entity_id.split(".")[0]
+            if domain not in ("light", "fan", "climate", "media_player", "cover"):
+                continue
+            value_entity_id = f"number.{suffix}_bank_{bank}_value"
+            _syncing_from_entity.add(bank)
+
+            async def _do_sync(b=bank, d=domain, eid=changed_entity_id, vid=value_entity_id):
+                try:
+                    await _sync_value_from_entity(hass, d, eid, vid)
+                finally:
+                    _syncing_from_entity.discard(b)
+
+            hass.async_create_task(_do_sync())
+
+    _assigned_entity_unsubs: list = []
+
+    def _register_assigned_entity_watchers() -> None:
+        """(Re-)register state watchers for all currently assigned entities."""
+        for u in _assigned_entity_unsubs:
+            u()
+        _assigned_entity_unsubs.clear()
+        entities = []
+        for bank in range(NUM_BANKS):
+            text_state = hass.states.get(f"text.{suffix}_bank_{bank}_entity")
+            if text_state and text_state.state and "." in text_state.state:
+                entities.append(text_state.state)
+        if entities:
+            _assigned_entity_unsubs.append(
+                async_track_state_change_event(hass, entities, _on_assigned_entity_changed)
+            )
+
+    @callback
+    def _on_bank_assignment_changed(event) -> None:
+        """Re-register entity watchers when a bank's assigned entity changes."""
+        _register_assigned_entity_watchers()
+
+    _register_assigned_entity_watchers()
+
     unsub_values = async_track_state_change_event(
         hass, bank_value_entity_ids, _on_bank_value_changed
     )
     unsub_active = async_track_state_change_event(
         hass, [active_bank_entity_id], _on_active_bank_changed
     )
+    unsub_assignments = async_track_state_change_event(
+        hass,
+        [f"text.{suffix}_bank_{bank}_entity" for bank in range(NUM_BANKS)],
+        _on_bank_assignment_changed,
+    )
 
     # Button event listener — fires pivot_button_press for user automations
     unsub_button = _setup_button_event_listener(hass, entry)
 
-    return [unsub_values, unsub_active] + ([unsub_button] if unsub_button else [])
+    return (
+        [unsub_values, unsub_active, unsub_assignments]
+        + ([unsub_button] if unsub_button else [])
+        + [lambda: [u() for u in _assigned_entity_unsubs]]
+    )
 
 
 # ---------------------------------------------------------------------------
