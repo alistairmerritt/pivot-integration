@@ -676,6 +676,7 @@ async def _sync_value_from_entity(
         await hass.services.async_call(
             "number", "set_value",
             {"entity_id": value_entity_id, "value": synced_value},
+            blocking=True,
         )
 
 
