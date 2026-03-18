@@ -174,16 +174,24 @@ def _setup_mirror_listeners(hass, entry) -> list:
 
         mirror_state = hass.states.get(mirror_switch_id)
         if not mirror_state or mirror_state.state != "on":
-            # Mirror turned off — restore default bank colour
+            # Mirror turned off — restore the user's chosen bank colour from the
+            # colour picker light entity, falling back to the hardcoded default
+            # only if the light entity is unavailable.
             from .const import BANK_COLORS_HEX
-            default_hex = BANK_COLORS_HEX[bank]
+            colour_light_id = make_entity_id("light", suffix, f"bank_{bank}_color_light")
+            colour_light_state = hass.states.get(colour_light_id)
+            rgb = colour_light_state.attributes.get("rgb_color") if colour_light_state else None
+            if rgb and len(rgb) == 3:
+                restore_hex = _rgb_to_hex(int(rgb[0]), int(rgb[1]), int(rgb[2]))
+            else:
+                restore_hex = BANK_COLORS_HEX[bank]
             current = hass.states.get(colour_text_id)
-            if current and current.state.upper() != default_hex.upper():
-                _LOGGER.debug("Pivot mirror: bank %d mirror off, restoring default %s", bank, default_hex)
+            if current and current.state.upper() != restore_hex.upper():
+                _LOGGER.debug("Pivot mirror: bank %d mirror off, restoring user colour %s", bank, restore_hex)
                 hass.async_create_task(
                     hass.services.async_call(
                         "text", "set_value",
-                        {"entity_id": colour_text_id, "value": default_hex},
+                        {"entity_id": colour_text_id, "value": restore_hex},
                         blocking=False,
                     )
                 )
