@@ -344,7 +344,7 @@ def _setup_bank_control_listener(
 
         # Don't apply to entity when this bank is being synced from an external
         # state change — prevents a write-back loop.
-        if bank_idx in _syncing_from_entity:
+        if _syncing_from_entity.get(bank_idx, 0) > 0:
             return
 
         # Only act when control mode is active
@@ -441,10 +441,13 @@ def _setup_bank_control_listener(
     # Keeps the LED gauge in sync when an assigned entity is changed externally
     # (e.g. voice command, another dashboard, or a physical switch).
     #
-    # _syncing_from_entity: set of bank indices currently being synced FROM an
-    # external entity change. Checked by _on_bank_value_changed to prevent it
-    # writing the value straight back to the entity (feedback loop).
-    _syncing_from_entity: set = set()
+    # _syncing_from_entity: count of in-flight sync tasks per bank index.
+    # Checked by _on_bank_value_changed to prevent it writing the value back
+    # to the entity while a sync is in progress (feedback loop prevention).
+    # Reference-counted so multiple concurrent tasks (e.g. a light reporting
+    # many intermediate states during a transition) all hold the guard until
+    # every task completes.
+    _syncing_from_entity: dict = {}  # bank_idx -> pending sync task count
 
     @callback
     def _on_assigned_entity_changed(event) -> None:
@@ -463,13 +466,17 @@ def _setup_bank_control_listener(
             if domain not in ("light", "fan", "climate", "media_player", "cover"):
                 continue
             value_entity_id = f"number.{suffix}_bank_{bank}_value"
-            _syncing_from_entity.add(bank)
+            _syncing_from_entity[bank] = _syncing_from_entity.get(bank, 0) + 1
 
             async def _do_sync(b=bank, d=domain, eid=changed_entity_id, vid=value_entity_id):
                 try:
                     await _sync_value_from_entity(hass, d, eid, vid)
                 finally:
-                    _syncing_from_entity.discard(b)
+                    count = _syncing_from_entity.get(b, 1) - 1
+                    if count > 0:
+                        _syncing_from_entity[b] = count
+                    else:
+                        _syncing_from_entity.pop(b, None)
 
             hass.async_create_task(_do_sync())
 
