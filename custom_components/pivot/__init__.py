@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
 import yaml as _yaml
 
@@ -342,11 +343,6 @@ def _setup_bank_control_listener(
         if bank_idx is None:
             return
 
-        # Don't apply to entity when this bank is being synced from an external
-        # state change — prevents a write-back loop.
-        if _syncing_from_entity.get(bank_idx, 0) > 0:
-            return
-
         # Only act when control mode is active
         control_mode_state = hass.states.get(f"switch.{suffix}_control_mode")
         if control_mode_state is None or control_mode_state.state != "on":
@@ -383,6 +379,9 @@ def _setup_bank_control_listener(
         except ValueError:
             return
 
+        # Stamp cooldown so incoming entity state changes (e.g. light
+        # transition intermediate values) don't sync back and create a loop.
+        _entity_apply_cooldown[bank_idx] = time.monotonic()
         hass.async_create_task(
             _apply_value_to_entity(hass, domain, bank_entity, value)
         )
@@ -441,13 +440,15 @@ def _setup_bank_control_listener(
     # Keeps the LED gauge in sync when an assigned entity is changed externally
     # (e.g. voice command, another dashboard, or a physical switch).
     #
-    # _syncing_from_entity: count of in-flight sync tasks per bank index.
-    # Checked by _on_bank_value_changed to prevent it writing the value back
-    # to the entity while a sync is in progress (feedback loop prevention).
-    # Reference-counted so multiple concurrent tasks (e.g. a light reporting
-    # many intermediate states during a transition) all hold the guard until
-    # every task completes.
-    _syncing_from_entity: dict = {}  # bank_idx -> pending sync task count
+    # _entity_apply_cooldown: monotonic timestamp of the last time Pivot
+    # applied a value to each bank's entity via _on_bank_value_changed.
+    # Incoming entity state changes are ignored for _SYNC_COOLDOWN_SECS after
+    # a Pivot-initiated apply, which covers the transition period during which
+    # the light reports intermediate brightness values. Without this, each
+    # intermediate value would trigger a sync that writes back to the number,
+    # which fires _on_bank_value_changed again, causing an oscillation loop.
+    _entity_apply_cooldown: dict = {}  # bank_idx -> time.monotonic() of last apply
+    _SYNC_COOLDOWN_SECS = 2.0
 
     @callback
     def _on_assigned_entity_changed(event) -> None:
@@ -465,20 +466,16 @@ def _setup_bank_control_listener(
             domain = changed_entity_id.split(".")[0]
             if domain not in ("light", "fan", "climate", "media_player", "cover"):
                 continue
+
+            # Skip if Pivot just applied a value to this entity — the entity
+            # is still transitioning and these are not external changes.
+            if time.monotonic() - _entity_apply_cooldown.get(bank, 0) < _SYNC_COOLDOWN_SECS:
+                continue
+
             value_entity_id = f"number.{suffix}_bank_{bank}_value"
-            _syncing_from_entity[bank] = _syncing_from_entity.get(bank, 0) + 1
-
-            async def _do_sync(b=bank, d=domain, eid=changed_entity_id, vid=value_entity_id):
-                try:
-                    await _sync_value_from_entity(hass, d, eid, vid)
-                finally:
-                    count = _syncing_from_entity.get(b, 1) - 1
-                    if count > 0:
-                        _syncing_from_entity[b] = count
-                    else:
-                        _syncing_from_entity.pop(b, None)
-
-            hass.async_create_task(_do_sync())
+            hass.async_create_task(
+                _sync_value_from_entity(hass, domain, changed_entity_id, value_entity_id)
+            )
 
     _assigned_entity_unsubs: list = []
 
@@ -683,7 +680,6 @@ async def _sync_value_from_entity(
         await hass.services.async_call(
             "number", "set_value",
             {"entity_id": value_entity_id, "value": synced_value},
-            blocking=True,
         )
 
 
