@@ -5,7 +5,7 @@ blueprint:
 
     - **Single press** on the selected bank — start if idle, pause if running, resume if paused.
     - **Long press** on the selected bank — cancel and reset the gauge to 0.
-    - **Gauge** — updates every 5 seconds while the timer is running, showing progress as 0–100%.
+    - **Gauge** — updates every 5 seconds while the timer is running, draining from 100% to 0% as time runs out.
     - **Finish** — resets the gauge to 0, plays a finish sound via the media player, and optionally speaks a message via TTS.
 
     All entity references are derived from the `suffix` input — no manual entity picking required.
@@ -224,7 +224,7 @@ action:
                                    + dur_parts[2] | int) | float %}
                 {% if finishes_at and dur_secs > 0 %}
                   {% set remaining_secs = [(as_datetime(finishes_at) - now()).total_seconds(), 0] | max %}
-                  {{ [0, [100, ((dur_secs - remaining_secs) / dur_secs * 100) | round(0) | int] | min] | max }}
+                  {{ [0, [100, (remaining_secs / dur_secs * 100) | round(0) | int] | min] | max }}
                 {% else %}
                   0
                 {% endif %}
