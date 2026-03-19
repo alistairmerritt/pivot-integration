@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import CONF_DEVICE_SUFFIX, get_number_definitions
+from .const import CONF_DEVICE_SUFFIX, get_number_definitions, get_timer_number_definitions
 from .entity_base import PivotEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ async def async_setup_entry(
     suffix: str = config_entry.data[CONF_DEVICE_SUFFIX]
     async_add_entities([
         PivotNumber(defn, config_entry)
-        for defn in get_number_definitions(suffix)
+        for defn in get_number_definitions(suffix) + get_timer_number_definitions(suffix)
     ])
 
 

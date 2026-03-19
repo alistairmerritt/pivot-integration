@@ -28,6 +28,8 @@ class PivotEntity(RestoreEntity):
         if "entity_category" in definition:
             from homeassistant.const import EntityCategory
             self._attr_entity_category = EntityCategory(definition["entity_category"])
+        if not definition.get("entity_registry_enabled_default", True):
+            self._attr_entity_registry_enabled_default = False
         # Pin the entity_id explicitly so it matches what the firmware expects
         # regardless of the device friendly name or entity display name.
         if "entity_id" in definition:

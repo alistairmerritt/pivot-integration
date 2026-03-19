@@ -215,6 +215,58 @@ def get_color_text_definitions(suffix: str) -> list[dict]:
     ]
 
 
+def get_timer_number_definitions(suffix: str) -> list[dict]:
+    """Timer duration number entity (disabled by default)."""
+    return [
+        {
+            "platform": "number",
+            "key": "timer_duration",
+            "unique_id": entity_unique_id(suffix, "timer_duration"),
+            "entity_id": entity_id("number", suffix, "timer_duration"),
+            "name": "Timer Duration",
+            "icon": "mdi:timer-cog-outline",
+            "min": 1.0,
+            "max": 120.0,
+            "step": 1.0,
+            "unit": "min",
+            "initial": 25.0,
+            "mode": "box",
+            "entity_registry_enabled_default": False,
+        }
+    ]
+
+
+def get_timer_select_definitions(suffix: str) -> list[dict]:
+    """Timer state select entity (disabled by default)."""
+    return [
+        {
+            "platform": "select",
+            "key": "timer_state",
+            "unique_id": entity_unique_id(suffix, "timer_state"),
+            "entity_id": entity_id("select", suffix, "timer_state"),
+            "name": "Timer State",
+            "icon": "mdi:timer",
+            "options": ["idle", "running", "paused"],
+            "initial": "idle",
+            "entity_registry_enabled_default": False,
+        }
+    ]
+
+
+def get_timer_definitions(suffix: str) -> list[dict]:
+    """Timer entity (disabled by default)."""
+    return [
+        {
+            "key": "timer",
+            "unique_id": entity_unique_id(suffix, "timer"),
+            "entity_id": entity_id("timer", suffix, "timer"),
+            "name": "Timer",
+            "icon": "mdi:timer",
+            "entity_registry_enabled_default": False,
+        }
+    ]
+
+
 def get_light_definitions(suffix: str) -> list[dict]:
     """Virtual light entities for bank colour pickers."""
     defaults = {
