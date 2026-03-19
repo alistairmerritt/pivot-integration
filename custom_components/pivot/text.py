@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, CONF_DEVICE_SUFFIX, get_text_definitions, get_color_text_definitions
+from .const import DOMAIN, CONF_DEVICE_SUFFIX, get_text_definitions, get_color_text_definitions, get_timer_text_definitions
 from .entity_base import PivotEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ async def async_setup_entry(
     suffix: str = config_entry.data[CONF_DEVICE_SUFFIX]
     async_add_entities([
         PivotText(defn, config_entry)
-        for defn in get_text_definitions(suffix) + get_color_text_definitions(suffix)
+        for defn in get_text_definitions(suffix) + get_color_text_definitions(suffix) + get_timer_text_definitions(suffix)
     ])
 
 

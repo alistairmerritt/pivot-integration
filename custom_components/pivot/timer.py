@@ -1,4 +1,18 @@
-"""Timer entities for Pivot."""
+"""
+Timer entities for Pivot — NOT USED.
+
+HA's `timer` domain is a helper integration that does not support the standard
+entity-platform forwarding mechanism used by custom integrations.  Attempting to
+list "timer" in PLATFORMS causes HA to silently skip the platform setup, so the
+timer.{suffix}_timer entity is never created.
+
+The timer feature is instead implemented entirely within the pivot_timer blueprint:
+  - number.{suffix}_timer_duration  — duration in minutes
+  - select.{suffix}_timer_state     — idle / running / paused state mirror
+  - text.{suffix}_timer_end         — ISO end-time while running, P{secs} while paused
+
+This file is retained for reference only.
+"""
 from __future__ import annotations
 
 import logging

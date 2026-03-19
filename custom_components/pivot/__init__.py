@@ -28,7 +28,7 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["number", "switch", "text", "binary_sensor", "light", "select", "timer"]
+PLATFORMS = ["number", "switch", "text", "binary_sensor", "light", "select"]
 
 
 def _make_pivot_dumper():

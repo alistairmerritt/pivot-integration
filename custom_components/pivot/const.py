@@ -253,15 +253,24 @@ def get_timer_select_definitions(suffix: str) -> list[dict]:
     ]
 
 
-def get_timer_definitions(suffix: str) -> list[dict]:
-    """Timer entity (disabled by default)."""
+def get_timer_text_definitions(suffix: str) -> list[dict]:
+    """
+    Timer end-time text entity (disabled by default).
+
+    Stores the ISO-8601 end timestamp while the timer is running,
+    "P{seconds}" of remaining time while paused, or "" when idle.
+    Updated exclusively by the pivot_timer blueprint.
+    """
     return [
         {
-            "key": "timer",
-            "unique_id": entity_unique_id(suffix, "timer"),
-            "entity_id": entity_id("timer", suffix, "timer"),
-            "name": "Timer",
-            "icon": "mdi:timer",
+            "platform": "text",
+            "key": "timer_end",
+            "unique_id": entity_unique_id(suffix, "timer_end"),
+            "entity_id": entity_id("text", suffix, "timer_end"),
+            "name": "Timer End",
+            "icon": "mdi:timer-outline",
+            "initial": "",
+            "max_length": 50,
             "entity_registry_enabled_default": False,
         }
     ]

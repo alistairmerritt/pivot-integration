@@ -12,7 +12,7 @@ blueprint:
 
     **Before using this blueprint:**
     1. Enable the three timer helper entities on your Pivot device
-       (`timer.{suffix}_timer`, `number.{suffix}_timer_duration`, `select.{suffix}_timer_state`).
+       (`number.{suffix}_timer_duration`, `select.{suffix}_timer_state`, `text.{suffix}_timer_end`).
     2. Set your desired duration on `number.{suffix}_timer_duration` (default: 25 minutes).
   domain: automation
   input:
@@ -71,19 +71,15 @@ variables:
   finish_sound: !input finish_sound
   tts_entity: !input tts_entity
   finish_message: !input finish_message
-  timer_entity: "timer.{{ suffix }}_timer"
   duration_entity: "number.{{ suffix }}_timer_duration"
   timer_state_entity: "select.{{ suffix }}_timer_state"
+  timer_end_entity: "text.{{ suffix }}_timer_end"
   bank_value_entity: "number.{{ suffix }}_bank_{{ bank | int - 1 }}_value"
 
 trigger:
   - trigger: event
     event_type: pivot_button_press
     id: button_press
-
-  - trigger: event
-    event_type: timer.finished
-    id: timer_finished
 
   - trigger: time_pattern
     seconds: "/5"
@@ -102,44 +98,60 @@ action:
                  and trigger.event.data.press_type == 'single_press' }}
         sequence:
           - choose:
-              # Idle → start with current duration setting
+              # Idle → start
               - conditions:
                   - condition: template
-                    value_template: "{{ is_state(timer_entity, 'idle') }}"
+                    value_template: "{{ is_state(timer_state_entity, 'idle') }}"
                 sequence:
-                  - action: timer.start
+                  - action: text.set_value
                     target:
-                      entity_id: "{{ timer_entity }}"
+                      entity_id: "{{ timer_end_entity }}"
                     data:
-                      duration: "{{ states(duration_entity) | int(25) * 60 }}"
+                      value: >
+                        {{ (now() + timedelta(seconds=states(duration_entity) | int(25) * 60)).isoformat() }}
                   - action: select.select_option
                     target:
                       entity_id: "{{ timer_state_entity }}"
                     data:
                       option: running
 
-              # Active → pause
+              # Running → pause (store remaining as P{seconds})
               - conditions:
                   - condition: template
-                    value_template: "{{ is_state(timer_entity, 'active') }}"
+                    value_template: "{{ is_state(timer_state_entity, 'running') }}"
                 sequence:
-                  - action: timer.pause
+                  - variables:
+                      remaining_secs: >
+                        {% set end_str = states(timer_end_entity) %}
+                        {% if end_str and not end_str.startswith('P') %}
+                          {{ [(as_datetime(end_str) - now()).total_seconds(), 0] | max | int }}
+                        {% else %}
+                          0
+                        {% endif %}
+                  - action: text.set_value
                     target:
-                      entity_id: "{{ timer_entity }}"
+                      entity_id: "{{ timer_end_entity }}"
+                    data:
+                      value: "P{{ remaining_secs }}"
                   - action: select.select_option
                     target:
                       entity_id: "{{ timer_state_entity }}"
                     data:
                       option: paused
 
-              # Paused → resume
+              # Paused → resume (read P{secs} and recalculate end time)
               - conditions:
                   - condition: template
-                    value_template: "{{ is_state(timer_entity, 'paused') }}"
+                    value_template: "{{ is_state(timer_state_entity, 'paused') }}"
                 sequence:
-                  - action: timer.start
+                  - variables:
+                      remaining_secs: "{{ states(timer_end_entity) | replace('P', '') | int(0) }}"
+                  - action: text.set_value
                     target:
-                      entity_id: "{{ timer_entity }}"
+                      entity_id: "{{ timer_end_entity }}"
+                    data:
+                      value: >
+                        {{ (now() + timedelta(seconds=remaining_secs)).isoformat() }}
                   - action: select.select_option
                     target:
                       entity_id: "{{ timer_state_entity }}"
@@ -155,9 +167,11 @@ action:
                  and trigger.event.data.bank | int == bank | int
                  and trigger.event.data.press_type == 'long_press' }}
         sequence:
-          - action: timer.cancel
+          - action: text.set_value
             target:
-              entity_id: "{{ timer_entity }}"
+              entity_id: "{{ timer_end_entity }}"
+            data:
+              value: ""
           - action: number.set_value
             target:
               entity_id: "{{ bank_value_entity }}"
@@ -169,70 +183,75 @@ action:
             data:
               option: idle
 
-      # ── Timer finished: reset gauge, play sound, optional TTS ──────────────
-      - conditions:
-          - condition: template
-            value_template: >
-              {{ trigger.id == 'timer_finished'
-                 and trigger.event.data.entity_id == timer_entity }}
-        sequence:
-          - action: number.set_value
-            target:
-              entity_id: "{{ bank_value_entity }}"
-            data:
-              value: 0
-          - action: select.select_option
-            target:
-              entity_id: "{{ timer_state_entity }}"
-            data:
-              option: idle
-          - if:
-              - condition: template
-                value_template: "{{ finish_sound | length > 0 }}"
-            then:
-              - action: media_player.play_media
-                target:
-                  entity_id: "{{ media_player }}"
-                data:
-                  media_content_id: "{{ finish_sound }}"
-                  media_content_type: music
-          - if:
-              - condition: template
-                value_template: "{{ tts_entity | length > 0 and finish_message | length > 0 }}"
-            then:
-              - action: tts.speak
-                target:
-                  entity_id: "{{ tts_entity }}"
-                data:
-                  media_player_entity_id: "{{ media_player }}"
-                  message: "{{ finish_message }}"
-
-      # ── Every 5 seconds: sync gauge while timer is active ──────────────────
+      # ── Every 5 seconds: sync gauge and detect finish ──────────────────────
       - conditions:
           - condition: template
             value_template: >
               {{ trigger.id == 'gauge_sync'
-                 and is_state(timer_entity, 'active') }}
+                 and is_state(timer_state_entity, 'running') }}
         sequence:
           - variables:
-              progress: >
-                {% set finishes_at = state_attr(timer_entity, 'finishes_at') %}
-                {% set dur_str = state_attr(timer_entity, 'duration') | string %}
-                {% set dur_parts = dur_str.split(':') %}
-                {% set dur_secs = (dur_parts[0] | int * 3600
-                                   + dur_parts[1] | int * 60
-                                   + dur_parts[2] | int) | float %}
-                {% if finishes_at and dur_secs > 0 %}
-                  {% set remaining_secs = [(as_datetime(finishes_at) - now()).total_seconds(), 0] | max %}
-                  {{ [0, [100, (remaining_secs / dur_secs * 100) | round(0) | int] | min] | max }}
+              timer_end_str: "{{ states(timer_end_entity) }}"
+              dur_secs: "{{ states(duration_entity) | int(25) * 60 | float }}"
+              remaining_secs: >
+                {% if timer_end_str and not timer_end_str.startswith('P') %}
+                  {{ [(as_datetime(timer_end_str) - now()).total_seconds(), 0] | max }}
                 {% else %}
                   0
                 {% endif %}
-          - action: number.set_value
-            target:
-              entity_id: "{{ bank_value_entity }}"
-            data:
-              value: "{{ progress }}"
+              progress: >
+                {% if dur_secs > 0 and remaining_secs | float > 0 %}
+                  {{ [0, [100, (remaining_secs | float / dur_secs * 100) | round(0) | int] | min] | max }}
+                {% else %}
+                  0
+                {% endif %}
+          - if:
+              - condition: template
+                value_template: "{{ remaining_secs | float <= 0 }}"
+            then:
+              # ── Timer finished ────────────────────────────────────────────
+              - action: text.set_value
+                target:
+                  entity_id: "{{ timer_end_entity }}"
+                data:
+                  value: ""
+              - action: select.select_option
+                target:
+                  entity_id: "{{ timer_state_entity }}"
+                data:
+                  option: idle
+              - action: number.set_value
+                target:
+                  entity_id: "{{ bank_value_entity }}"
+                data:
+                  value: 0
+              - if:
+                  - condition: template
+                    value_template: "{{ finish_sound | length > 0 }}"
+                then:
+                  - action: media_player.play_media
+                    target:
+                      entity_id: "{{ media_player }}"
+                    data:
+                      media_content_id: "{{ finish_sound }}"
+                      media_content_type: music
+              - if:
+                  - condition: template
+                    value_template: "{{ tts_entity | length > 0 and finish_message | length > 0 }}"
+                then:
+                  - action: tts.speak
+                    target:
+                      entity_id: "{{ tts_entity }}"
+                    data:
+                      media_player_entity_id: "{{ media_player }}"
+                      message: "{{ finish_message }}"
+            else:
+              # ── Still running — update gauge ──────────────────────────────
+              - action: number.set_value
+                target:
+                  entity_id: "{{ bank_value_entity }}"
+                data:
+                  value: "{{ progress }}"
 
 mode: queued
 max: 5
