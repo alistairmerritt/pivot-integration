@@ -6,7 +6,8 @@ blueprint:
     - **Single press** on the selected bank — start if idle, pause if running, resume if paused.
     - **Long press** on the selected bank — cancel and reset the gauge to 0.
     - **Gauge** — updates every 5 seconds while the timer is running, draining from 100% to 0% as time runs out.
-    - **Finish** — resets the gauge to 0, plays a finish sound via the media player, and optionally speaks a message via TTS.
+    - **Finish** — flashes the gauge and plays the finish sound repeatedly until dismissed with a single press.
+      Optionally speaks a TTS message once before the alert loop begins.
 
     All entity references are derived from the `suffix` input — no manual entity picking required.
 
@@ -36,30 +37,21 @@ blueprint:
 
     media_player:
       name: Media Player
-      description: Media player to play the finish sound through.
+      description: Media player to play the finish alert through.
       selector:
         entity:
           domain: media_player
 
-    finish_sound:
-      name: Finish Sound URL
-      description: >
-        URL of the audio file to play when the timer finishes.
-        Must be accessible by Home Assistant (e.g. a local `/local/` file or external URL).
-      default: ""
-      selector:
-        text:
-
     tts_entity:
       name: TTS Entity (optional)
-      description: Text-to-speech entity for the finish announcement. Leave blank to skip.
+      description: Text-to-speech entity for a one-off finish announcement. Leave blank to skip.
       default: ""
       selector:
         text:
 
     finish_message:
       name: Finish Message (optional)
-      description: Message spoken by TTS when the timer finishes.
+      description: Message spoken by TTS once when the timer finishes (before the alert loop).
       default: "Timer finished"
       selector:
         text:
@@ -68,13 +60,13 @@ variables:
   suffix: !input suffix
   bank: !input bank
   media_player: !input media_player
-  finish_sound: !input finish_sound
   tts_entity: !input tts_entity
   finish_message: !input finish_message
   duration_entity: "number.{{ suffix }}_timer_duration"
   timer_state_entity: "select.{{ suffix }}_timer_state"
   timer_end_entity: "text.{{ suffix }}_timer_end"
   bank_value_entity: "number.{{ suffix }}_bank_{{ bank | int - 1 }}_value"
+  finish_sound: "https://raw.githubusercontent.com/esphome/home-assistant-voice-pe/dev/sounds/timer_finished.flac"
 
 trigger:
   - trigger: event
@@ -239,16 +231,8 @@ action:
                   entity_id: "{{ bank_value_entity }}"
                 data:
                   value: 0
-              - if:
-                  - condition: template
-                    value_template: "{{ finish_sound | length > 0 }}"
-                then:
-                  - action: media_player.play_media
-                    target:
-                      entity_id: "{{ media_player }}"
-                    data:
-                      media_content_id: "{{ finish_sound }}"
-                      media_content_type: music
+
+              # Optional one-off TTS announcement before the alert loop
               - if:
                   - condition: template
                     value_template: "{{ tts_entity | length > 0 and finish_message | length > 0 }}"
@@ -259,6 +243,85 @@ action:
                     data:
                       media_player_entity_id: "{{ media_player }}"
                       message: "{{ finish_message }}"
+                  - delay:
+                      seconds: 3
+
+              # Alert loop — plays sound + flashes gauge until single press or 10 repeats
+              - variables:
+                  dismissed: false
+              - repeat:
+                  until: "{{ dismissed or repeat.index >= 10 }}"
+                  sequence:
+                    # Play finish sound
+                    - action: media_player.play_media
+                      target:
+                        entity_id: "{{ media_player }}"
+                      data:
+                        media_content_id: "{{ finish_sound }}"
+                        media_content_type: music
+                    # Flash gauge 3 times
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 100
+                    - delay:
+                        milliseconds: 400
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 0
+                    - delay:
+                        milliseconds: 400
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 100
+                    - delay:
+                        milliseconds: 400
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 0
+                    - delay:
+                        milliseconds: 400
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 100
+                    - delay:
+                        milliseconds: 400
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 0
+                    - delay:
+                        milliseconds: 400
+                    # Wait up to 3 seconds for a dismiss press
+                    - wait_for_trigger:
+                        - trigger: event
+                          event_type: pivot_button_press
+                          event_data:
+                            suffix: "{{ suffix }}"
+                            press_type: single_press
+                      timeout:
+                        seconds: 3
+                      continue_on_timeout: true
+                    - variables:
+                        dismissed: "{{ wait.trigger is not none }}"
+
+              # Final cleanup — ensure gauge is off
+              - action: number.set_value
+                target:
+                  entity_id: "{{ bank_value_entity }}"
+                data:
+                  value: 0
+
             else:
               # ── Still running — update gauge ──────────────────────────────
               - action: number.set_value
