@@ -781,6 +781,18 @@ async def _write_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) -> 
                     "domain": "{{ bank_entity.split('.')[0] if '.' in bank_entity else '' }}",
                 }
             },
+            # Fire pivot_button_press BEFORE the entity guard so automations
+            # (e.g. the timer blueprint) can react even when the bank is empty.
+            {
+                "event": "pivot_button_press",
+                "event_data": {
+                    "suffix": suffix,
+                    "bank": "{{ bank + 1 }}",
+                    "bank_entity": "{{ bank_entity }}",
+                    "press_type": "single_press",
+                    "control_mode": True,
+                },
+            },
             {
                 "condition": "template",
                 "value_template": "{{ bank_entity | length > 0 and bank_entity not in ('unknown', 'unavailable', '') }}",
