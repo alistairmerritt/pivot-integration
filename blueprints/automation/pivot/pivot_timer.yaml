@@ -86,6 +86,13 @@ trigger:
     id: gauge_sync
 
 action:
+  # Discard stale button press events — prevents queued presses from a
+  # previous state firing back-to-back and causing spurious transitions.
+  - condition: template
+    value_template: >
+      {{ trigger.id != 'button_press' or
+         (now() - trigger.event.time_fired).total_seconds() < 2 }}
+
   - choose:
 
       # ── Single press: start / pause / resume ───────────────────────────────
@@ -261,4 +268,4 @@ action:
                   value: "{{ progress }}"
 
 mode: queued
-max: 5
+max: 2
