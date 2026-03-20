@@ -267,5 +267,4 @@ action:
                 data:
                   value: "{{ progress }}"
 
-mode: queued
-max: 2
+mode: single

@@ -763,8 +763,7 @@ async def _write_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) -> 
         "alias": f"Pivot \u2014 {friendly_name} Bank Toggle",
         "description": "Auto-created by Pivot integration. Do not edit manually.",
         "icon": "mdi:knob",
-        "mode": "queued",
-        "max": 3,
+        "mode": "single",
         "sequence": [
             {
                 "variables": {
