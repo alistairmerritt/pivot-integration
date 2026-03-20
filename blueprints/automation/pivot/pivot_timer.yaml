@@ -138,6 +138,13 @@ action:
                       entity_id: "{{ timer_state_entity }}"
                     data:
                       option: paused
+                  - action: number.set_value
+                    target:
+                      entity_id: "{{ bank_value_entity }}"
+                    data:
+                      value: >
+                        {% set dur_secs = states(duration_entity) | int(25) * 60 | float %}
+                        {{ [0, [100, (remaining_secs | float / dur_secs * 100) | round(0) | int] | min] | max if dur_secs > 0 else 0 }}
 
               # Paused → resume (read P{secs} and recalculate end time)
               - conditions:
