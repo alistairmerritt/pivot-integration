@@ -14,8 +14,8 @@ from .entity_base import PivotEntity
 
 _LOGGER = logging.getLogger(__name__)
 
-# Domains that are considered "passive" — the knob does nothing, single press fires them
-PASSIVE_DOMAINS = {"scene", "script"}
+# Domains that are considered "passive" — the knob does nothing, single press toggles/fires them
+PASSIVE_DOMAINS = {"scene", "script", "switch", "input_boolean"}
 
 
 async def async_setup_entry(
@@ -41,8 +41,9 @@ async def async_setup_entry(
 
 class PivotBankPassiveSensor(PivotEntity, BinarySensorEntity):
     """
-    Binary sensor that is ON when the bank's assigned entity is a scene or script.
-    Derived automatically from the corresponding text entity — no user configuration needed.
+    Binary sensor that is ON when the bank's assigned entity is a scene, script,
+    switch, or input_boolean — i.e. entities where the knob has no meaningful value
+    to control. Derived automatically from the corresponding text entity.
     The firmware reads this to decide whether to disable the knob for this bank.
     """
 
