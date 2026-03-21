@@ -257,29 +257,20 @@ action:
                       seconds: 3
 
               # Alert loop — plays sound + flashes gauge until single press or 10 repeats.
-              # Each iteration: 200 ms pre-check (catches presses from the previous flash
-              # window), then sound + flash (0.9 s), then 2 s window to catch a dismiss press.
+              #
+              # Two-trigger dismiss strategy:
+              #   1. pivot_button_press event — fires immediately on press (catches presses
+              #      during the wait window).
+              #   2. script.{suffix}_bank_toggle state → on — the firmware calls this script
+              #      via HA API ~2-3 s after any press. This catches presses that happened
+              #      during the flash sequence, when no event listener was active.
+              #
+              # The 4-second timeout covers the 2-3 s API lag plus buffer.
               - variables:
                   dismissed: false
               - repeat:
                   until: "{{ dismissed or repeat.index >= 10 }}"
                   sequence:
-                    # Pre-check: catch any dismiss press that fired during the previous
-                    # flash sequence (which has no listening window of its own).
-                    - wait_for_trigger:
-                        - trigger: event
-                          event_type: pivot_button_press
-                          event_data:
-                            suffix: "{{ suffix }}"
-                            press_type: single_press
-                      timeout:
-                        milliseconds: 200
-                      continue_on_timeout: true
-                    - variables:
-                        dismissed: "{{ dismissed or wait.trigger is not none }}"
-                    # Skip sound + flash if already dismissed
-                    - condition: template
-                      value_template: "{{ not dismissed }}"
                     # Play finish sound
                     - action: media_player.play_media
                       target:
@@ -328,15 +319,21 @@ action:
                         entity_id: "{{ bank_value_entity }}"
                       data:
                         value: 0
-                    # Wait up to 2 seconds for a dismiss press
+                    # Wait for dismiss — two triggers so presses are never missed:
+                    # • event trigger: immediate (catches presses during this wait window)
+                    # • script trigger: catches presses from the flash window above,
+                    #   arriving ~2-3 s later via the firmware's HA API call
                     - wait_for_trigger:
                         - trigger: event
                           event_type: pivot_button_press
                           event_data:
                             suffix: "{{ suffix }}"
                             press_type: single_press
+                        - trigger: state
+                          entity_id: "script.{{ suffix }}_bank_toggle"
+                          to: "on"
                       timeout:
-                        seconds: 2
+                        seconds: 4
                       continue_on_timeout: true
                     - variables:
                         dismissed: "{{ wait.trigger is not none }}"
