@@ -99,11 +99,6 @@ class PivotBankPassiveSensor(PivotEntity, BinarySensorEntity):
             self._attr_is_on = False
             return
         entity_id = state.state.strip()
-        # 'timer' is a reserved keyword for timer banks — treat as passive
-        # so the firmware disables the knob (gauge is managed by the timer blueprint)
-        if entity_id == "timer":
-            self._attr_is_on = True
-            return
         domain = entity_id.split(".")[0] if "." in entity_id else ""
         self._attr_is_on = domain in PASSIVE_DOMAINS
 
