@@ -72,6 +72,7 @@ class PivotSwitch(PivotEntity, SwitchEntity):
         # Normal restore for non-config-backed switches
         if (last := await self.async_get_last_state()) is not None:
             self._attr_is_on = last.state == "on"
+            self.async_write_ha_state()
 
     @property
     def is_on(self) -> bool:

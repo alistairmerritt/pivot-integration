@@ -869,7 +869,7 @@ async def _write_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) -> 
             # against the firmware button_press_event path on reflashed devices.
             {
                 "condition": "template",
-                "value_template": "{{ bank_entity | length > 0 and bank_entity not in ('unknown', 'unavailable', '') }}",
+                "value_template": "{{ bank_entity | length > 0 and bank_entity not in ('unknown', 'unavailable', '', 'timer') }}",
             },
             {
                 "choose": [
@@ -1224,7 +1224,7 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
         "triggers": triggers,
         "conditions": conditions,
         "actions": [{"choose": choose_actions}],
-        "mode": "single",
+        "mode": "restart",
     }
 
     pivot_auto_path = hass.config.path(f"pivot_{automation_key}.yaml")

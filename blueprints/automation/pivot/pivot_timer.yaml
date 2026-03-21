@@ -14,7 +14,10 @@ blueprint:
     **Before using this blueprint:**
     1. Enable the three timer helper entities on your Pivot device
        (`number.{suffix}_timer_duration`, `select.{suffix}_timer_state`, `text.{suffix}_timer_end`).
-    2. Set your desired duration on `number.{suffix}_timer_duration` (default: 25 minutes).
+    2. Set the bank entity for the chosen bank to exactly `timer`
+       (e.g. set `text.{suffix}_bank_3_entity` to `timer`). This tells Pivot that bank is reserved
+       for the timer — the knob is automatically disabled and the timer blueprint takes over.
+    3. Set your desired duration on `number.{suffix}_timer_duration` (default: 25 minutes).
   domain: automation
   input:
     suffix:
@@ -27,7 +30,7 @@ blueprint:
 
     bank:
       name: Bank Number
-      description: Which bank button controls the timer (1–4).
+      description: Which bank button controls the timer (1–4). The bank entity for this bank must be set to `timer`.
       default: 1
       selector:
         number:
@@ -66,6 +69,7 @@ variables:
   timer_state_entity: "select.{{ suffix }}_timer_state"
   timer_end_entity: "text.{{ suffix }}_timer_end"
   bank_value_entity: "number.{{ suffix }}_bank_{{ bank | int - 1 }}_value"
+  bank_entity_text_entity: "text.{{ suffix }}_bank_{{ bank | int - 1 }}_entity"
   finish_sound: "https://raw.githubusercontent.com/esphome/home-assistant-voice-pe/dev/sounds/timer_finished.flac"
 
 trigger:
@@ -95,6 +99,9 @@ action:
                  and trigger.event.data.suffix == suffix
                  and trigger.event.data.bank | int == bank | int
                  and trigger.event.data.press_type == 'single_press' }}
+          # Only act when the bank entity is set to 'timer'
+          - condition: template
+            value_template: "{{ is_state(bank_entity_text_entity, 'timer') }}"
         sequence:
           - choose:
               # Idle → start
@@ -172,6 +179,9 @@ action:
                  and trigger.event.data.suffix == suffix
                  and trigger.event.data.bank | int == bank | int
                  and trigger.event.data.press_type == 'long_press' }}
+          # Only act when the bank entity is set to 'timer'
+          - condition: template
+            value_template: "{{ is_state(bank_entity_text_entity, 'timer') }}"
         sequence:
           - action: text.set_value
             target:
@@ -246,63 +256,16 @@ action:
                   - delay:
                       seconds: 3
 
-              # Alert loop — plays sound + flashes gauge until single press or 10 repeats
+              # Alert loop — plays sound + flashes gauge until single press or 10 repeats.
+              # Each iteration: 200 ms pre-check (catches presses from the previous flash
+              # window), then sound + flash (0.9 s), then 2 s window to catch a dismiss press.
               - variables:
                   dismissed: false
               - repeat:
                   until: "{{ dismissed or repeat.index >= 10 }}"
                   sequence:
-                    # Play finish sound
-                    - action: media_player.play_media
-                      target:
-                        entity_id: "{{ media_player }}"
-                      data:
-                        media_content_id: "{{ finish_sound }}"
-                        media_content_type: music
-                    # Flash gauge 3 times
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 100
-                    - delay:
-                        milliseconds: 400
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 0
-                    - delay:
-                        milliseconds: 400
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 100
-                    - delay:
-                        milliseconds: 400
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 0
-                    - delay:
-                        milliseconds: 400
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 100
-                    - delay:
-                        milliseconds: 400
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 0
-                    - delay:
-                        milliseconds: 400
-                    # Wait up to 3 seconds for a dismiss press
+                    # Pre-check: catch any dismiss press that fired during the previous
+                    # flash sequence (which has no listening window of its own).
                     - wait_for_trigger:
                         - trigger: event
                           event_type: pivot_button_press
@@ -310,7 +273,70 @@ action:
                             suffix: "{{ suffix }}"
                             press_type: single_press
                       timeout:
-                        seconds: 3
+                        milliseconds: 200
+                      continue_on_timeout: true
+                    - variables:
+                        dismissed: "{{ dismissed or wait.trigger is not none }}"
+                    # Skip sound + flash if already dismissed
+                    - condition: template
+                      value_template: "{{ not dismissed }}"
+                    # Play finish sound
+                    - action: media_player.play_media
+                      target:
+                        entity_id: "{{ media_player }}"
+                      data:
+                        media_content_id: "{{ finish_sound }}"
+                        media_content_type: music
+                    # Flash gauge 3 times (150 ms each = 0.9 s total flash window)
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 100
+                    - delay:
+                        milliseconds: 150
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 0
+                    - delay:
+                        milliseconds: 150
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 100
+                    - delay:
+                        milliseconds: 150
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 0
+                    - delay:
+                        milliseconds: 150
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 100
+                    - delay:
+                        milliseconds: 150
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 0
+                    # Wait up to 2 seconds for a dismiss press
+                    - wait_for_trigger:
+                        - trigger: event
+                          event_type: pivot_button_press
+                          event_data:
+                            suffix: "{{ suffix }}"
+                            press_type: single_press
+                      timeout:
+                        seconds: 2
                       continue_on_timeout: true
                     - variables:
                         dismissed: "{{ wait.trigger is not none }}"
