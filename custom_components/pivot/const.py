@@ -239,7 +239,7 @@ def get_configured_color_text_definitions(suffix: str) -> list[dict]:
             "icon": "mdi:palette-outline",
             "initial": defaults[bank],
             "max_length": 7,
-            "entity_registry_enabled_default": False,  # internal use only
+            "entity_category": "diagnostic",  # tucked away but always enabled so firmware can read it
         }
         for bank in range(NUM_BANKS)
     ]
