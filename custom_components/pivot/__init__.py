@@ -1224,7 +1224,7 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
         "triggers": triggers,
         "conditions": conditions,
         "actions": [{"choose": choose_actions}],
-        "mode": "restart",
+        "mode": "single",
     }
 
     pivot_auto_path = hass.config.path(f"pivot_{automation_key}.yaml")
