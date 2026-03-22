@@ -215,6 +215,36 @@ def get_color_text_definitions(suffix: str) -> list[dict]:
     ]
 
 
+def get_configured_color_text_definitions(suffix: str) -> list[dict]:
+    """Hidden text entities storing the user's configured colour per bank.
+
+    Unlike bank_N_color, these are NEVER overwritten by the mirror feature —
+    they always hold whatever the user set in the colour picker. The firmware
+    reads them to keep bank_mirror_r/g/b_N in sync so the Bank Indicator shows
+    the correct identity colour even when mirror light is active.
+    """
+    defaults = {
+        0: "#2889FF",  # Blue
+        1: "#FF7D19",  # Orange
+        2: "#97FF3D",  # Green
+        3: "#C800FF",  # Purple
+    }
+    return [
+        {
+            "platform": "text",
+            "key": f"bank_{bank}_configured_color",
+            "unique_id": entity_unique_id(suffix, f"bank_{bank}_configured_color"),
+            "entity_id": entity_id("text", suffix, f"bank_{bank}_configured_color"),
+            "name": f"Bank {bank + 1} Configured Colour",
+            "icon": "mdi:palette-outline",
+            "initial": defaults[bank],
+            "max_length": 7,
+            "entity_registry_enabled_default": False,  # internal use only
+        }
+        for bank in range(NUM_BANKS)
+    ]
+
+
 def get_timer_number_definitions(suffix: str) -> list[dict]:
     """Timer duration number entity (disabled by default)."""
     return [

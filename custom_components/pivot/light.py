@@ -98,16 +98,22 @@ class PivotBankColorLight(LightEntity, RestoreEntity):
         self.async_write_ha_state()
 
     async def _push_colour(self) -> None:
-        """Write hex colour to the corresponding text entity for the firmware."""
+        """Write hex colour to the corresponding text entities for the firmware.
+
+        Writes to two entities:
+        - bank_N_color: the display colour (may be overwritten by mirror listener)
+        - bank_N_configured_color: the user's chosen colour (never overwritten by mirror)
+        """
         r, g, b = self._rgb
         hex_color = f"#{r:02X}{g:02X}{b:02X}"
         text_entity_id = make_entity_id("text", self._suffix, f"bank_{self._bank}_color")
+        configured_entity_id = make_entity_id("text", self._suffix, f"bank_{self._bank}_configured_color")
         _LOGGER.debug("Pivot: pushing bank %d colour %s to %s", self._bank, hex_color, text_entity_id)
         await self.hass.services.async_call(
-            "text",
-            "set_value",
-            {"entity_id": text_entity_id, "value": hex_color},
-            blocking=True,
+            "text", "set_value", {"entity_id": text_entity_id, "value": hex_color}, blocking=True,
+        )
+        await self.hass.services.async_call(
+            "text", "set_value", {"entity_id": configured_entity_id, "value": hex_color}, blocking=True,
         )
 
     async def async_added_to_hass(self) -> None:

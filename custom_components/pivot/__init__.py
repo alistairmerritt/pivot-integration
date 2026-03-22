@@ -169,30 +169,43 @@ def _setup_mirror_listeners(hass, entry) -> list:
 
     def _apply_mirror_for_bank(bank: int) -> None:
         """Check mirror state for one bank and write hex to colour text entity."""
+        from .const import BANK_COLORS_HEX
         mirror_switch_id = make_entity_id("switch", suffix, f"bank_{bank}_mirror_light")
         bank_entity_id = make_entity_id("text", suffix, f"bank_{bank}_entity")
         colour_text_id = make_entity_id("text", suffix, f"bank_{bank}_color")
+        configured_text_id = make_entity_id("text", suffix, f"bank_{bank}_configured_color")
+
+        # Always compute the user's configured colour from the colour picker light.
+        # Write it to bank_N_configured_color regardless of mirror state — this entity
+        # is never overwritten by the mirror listener, so the firmware can always read
+        # the user's chosen colour from it (used for Bank Indicator identity colours).
+        colour_light_id = make_entity_id("light", suffix, f"bank_{bank}_color_light")
+        colour_light_state = hass.states.get(colour_light_id)
+        rgb = colour_light_state.attributes.get("rgb_color") if colour_light_state else None
+        if rgb and len(rgb) == 3:
+            configured_hex = _rgb_to_hex(int(rgb[0]), int(rgb[1]), int(rgb[2]))
+        else:
+            configured_hex = BANK_COLORS_HEX[bank]
+        current_configured = hass.states.get(configured_text_id)
+        if not current_configured or current_configured.state.upper() != configured_hex.upper():
+            hass.async_create_task(
+                hass.services.async_call(
+                    "text", "set_value",
+                    {"entity_id": configured_text_id, "value": configured_hex},
+                    blocking=False,
+                )
+            )
 
         mirror_state = hass.states.get(mirror_switch_id)
         if not mirror_state or mirror_state.state != "on":
-            # Mirror turned off — restore the user's chosen bank colour from the
-            # colour picker light entity, falling back to the hardcoded default
-            # only if the light entity is unavailable.
-            from .const import BANK_COLORS_HEX
-            colour_light_id = make_entity_id("light", suffix, f"bank_{bank}_color_light")
-            colour_light_state = hass.states.get(colour_light_id)
-            rgb = colour_light_state.attributes.get("rgb_color") if colour_light_state else None
-            if rgb and len(rgb) == 3:
-                restore_hex = _rgb_to_hex(int(rgb[0]), int(rgb[1]), int(rgb[2]))
-            else:
-                restore_hex = BANK_COLORS_HEX[bank]
+            # Mirror turned off — restore the configured colour to the display entity too
             current = hass.states.get(colour_text_id)
-            if current and current.state.upper() != restore_hex.upper():
-                _LOGGER.debug("Pivot mirror: bank %d mirror off, restoring user colour %s", bank, restore_hex)
+            if not current or current.state.upper() != configured_hex.upper():
+                _LOGGER.debug("Pivot mirror: bank %d mirror off, restoring user colour %s", bank, configured_hex)
                 hass.async_create_task(
                     hass.services.async_call(
                         "text", "set_value",
-                        {"entity_id": colour_text_id, "value": restore_hex},
+                        {"entity_id": colour_text_id, "value": configured_hex},
                         blocking=False,
                     )
                 )
