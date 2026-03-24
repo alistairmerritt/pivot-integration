@@ -477,7 +477,7 @@ def _setup_bank_control_listener(
             if text_state is None or text_state.state != changed_entity_id:
                 continue
             domain = changed_entity_id.split(".")[0]
-            if domain not in ("light", "fan", "climate", "media_player", "cover"):
+            if domain not in ("light", "fan", "climate", "media_player", "cover", "input_number", "number"):
                 continue
 
             # Skip if Pivot just applied a value to this entity — the entity
@@ -717,6 +717,18 @@ async def _apply_value_to_entity(
             "cover", "set_cover_position",
             {"entity_id": entity_id, "position": round(value)},
         )
+    elif domain in ("input_number", "number"):
+        state = hass.states.get(entity_id)
+        if state is None:
+            return
+        min_val = float(state.attributes.get("min", 0))
+        max_val = float(state.attributes.get("max", 100))
+        scaled = min_val + (value / 100.0) * (max_val - min_val)
+        scaled = round(max(min_val, min(max_val, scaled)), 2)
+        await hass.services.async_call(
+            domain, "set_value",
+            {"entity_id": entity_id, "value": scaled},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -756,6 +768,18 @@ async def _sync_value_from_entity(
         pos = state.attributes.get("current_position")
         if pos is not None:
             synced_value = round(float(pos))
+    elif domain in ("input_number", "number"):
+        try:
+            raw = float(state.state)
+        except (ValueError, TypeError):
+            raw = None
+        if raw is not None:
+            min_val = float(state.attributes.get("min", 0))
+            max_val = float(state.attributes.get("max", 100))
+            if max_val != min_val:
+                synced_value = round((raw - min_val) / (max_val - min_val) * 100)
+            else:
+                synced_value = 0.0
 
     _LOGGER.debug(
         "Pivot sync: entity=%s domain=%s state=%s brightness=%s vol=%s pct=%s temp=%s pos=%s -> synced_value=%s",
@@ -902,6 +926,10 @@ async def _write_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) -> 
                         "conditions": "{{ domain == 'cover' }}",
                         "sequence": [{"action": "cover.toggle", "target": {"entity_id": "{{ bank_entity }}"}}],
                     },
+                    {
+                        "conditions": "{{ domain in ('input_number', 'number') }}",
+                        "sequence": [],
+                    },
                 ],
                 "default": [
                     {"action": "homeassistant.toggle", "target": {"entity_id": "{{ bank_entity }}"}}
@@ -916,6 +944,8 @@ async def _write_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) -> 
                     "new_temperature": f"{{{{ state_attr(bank_entity, 'temperature') }}}}",
                     "new_position": f"{{{{ state_attr(bank_entity, 'current_position') }}}}",
                     "entity_state": f"{{{{ states(bank_entity) }}}}",
+                    "number_min": f"{{{{ state_attr(bank_entity, 'min') | float(0) }}}}",
+                    "number_max": f"{{{{ state_attr(bank_entity, 'max') | float(100) }}}}",
                 }
             },
             {
@@ -950,6 +980,14 @@ async def _write_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) -> 
                             "action": "number.set_value",
                             "target": {"entity_id": f"number.{suffix}_bank_{{{{ bank }}}}_value"},
                             "data": {"value": "{{ new_position | float(0) | round(0) | int }}"},
+                        }],
+                    },
+                    {
+                        "conditions": "{{ domain in ('input_number', 'number') }}",
+                        "sequence": [{
+                            "action": "number.set_value",
+                            "target": {"entity_id": f"number.{suffix}_bank_{{{{ bank }}}}_value"},
+                            "data": {"value": "{{ (((entity_state | float(0)) - number_min) / ((number_max - number_min) if number_max != number_min else 1) * 100) | round(0) | int }}"},
                         }],
                     },
                 ],

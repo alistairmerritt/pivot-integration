@@ -109,7 +109,7 @@ def _bank_entity_schema(current: dict[str, str] | None = None) -> vol.Schema:
     fields = {}
     entity_sel = selector.EntitySelector(
         selector.EntitySelectorConfig(
-            domain=["light", "switch", "fan", "climate", "media_player", "cover", "scene", "script"],
+            domain=["light", "switch", "fan", "climate", "media_player", "cover", "scene", "script", "input_number", "number"],
             multiple=False,
         )
     )
