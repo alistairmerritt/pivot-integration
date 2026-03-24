@@ -137,6 +137,15 @@ def get_switch_definitions(suffix: str, announcements_default: bool = True) -> l
         },
         {
             "platform": "switch",
+            "key": "dim_when_idle",
+            "unique_id": entity_unique_id(suffix, "dim_when_idle"),
+            "entity_id": entity_id("switch", suffix, "dim_when_idle"),
+            "name": "Dim LEDs When Idle",
+            "icon": "mdi:brightness-4",
+            "initial": False,
+        },
+        {
+            "platform": "switch",
             "key": "announcements",
             "unique_id": entity_unique_id(suffix, "announcements"),
             "entity_id": entity_id("switch", suffix, "announcements"),
