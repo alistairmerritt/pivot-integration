@@ -82,6 +82,10 @@ trigger:
     seconds: "/5"
     id: gauge_sync
 
+  - trigger: state
+    entity_id: "number.{{ suffix }}_timer_duration"
+    id: duration_changed
+
 action:
   # Discard stale button press events — prevents queued presses from a
   # previous state firing back-to-back and causing spurious transitions.
@@ -121,6 +125,11 @@ action:
                       entity_id: "{{ timer_state_entity }}"
                     data:
                       option: running
+                  - action: number.set_value
+                    target:
+                      entity_id: "{{ bank_value_entity }}"
+                    data:
+                      value: 100
                   - action: switch.turn_off
                     target:
                       entity_id: "{{ dim_switch_entity }}"
@@ -376,4 +385,43 @@ action:
                 data:
                   value: "{{ progress }}"
 
-mode: single
+      # ── Duration changed (knob turned while idle): announce selected time ──
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ trigger.id == 'duration_changed'
+                 and is_state(timer_state_entity, 'idle') }}
+        sequence:
+          # Debounce — wait for the knob to stop turning
+          - wait_for_trigger:
+              - trigger: state
+                entity_id: "{{ duration_entity }}"
+            timeout:
+              milliseconds: 600
+            continue_on_timeout: true
+          # Only announce if nothing changed in that window (knob settled)
+          - condition: template
+            value_template: "{{ wait.trigger is none }}"
+          - if:
+              - condition: template
+                value_template: "{{ tts_entity | length > 0 }}"
+            then:
+              - action: tts.speak
+                target:
+                  entity_id: "{{ tts_entity }}"
+                data:
+                  media_player_entity_id: "{{ media_player }}"
+                  message: >
+                    {% set mins = states(duration_entity) | int(25) %}
+                    {% set h = mins // 60 %}
+                    {% set m = mins % 60 %}
+                    {% if h > 0 and m > 0 %}
+                      {{ h }} hour{{ 's' if h > 1 else '' }} and {{ m }} minute{{ 's' if m > 1 else '' }} timer. Press to start.
+                    {% elif h > 0 %}
+                      {{ h }} hour{{ 's' if h > 1 else '' }} timer. Press to start.
+                    {% else %}
+                      {{ m }} minute{{ 's' if m > 1 else '' }} timer. Press to start.
+                    {% endif %}
+
+mode: queued
+max: 3

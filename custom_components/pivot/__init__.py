@@ -378,6 +378,34 @@ def _setup_bank_control_listener(
             return
 
         bank_entity = text_state.state
+
+        # Timer bank: map knob value (0-100) to timer_duration when idle
+        if bank_entity == "timer":
+            timer_state_id = f"select.{suffix}_timer_state"
+            timer_st = hass.states.get(timer_state_id)
+            if timer_st is None or timer_st.state != "idle":
+                return  # Knob does nothing while running/paused
+            duration_eid = f"number.{suffix}_timer_duration"
+            dur_st = hass.states.get(duration_eid)
+            if dur_st is None:
+                return
+            try:
+                min_val = float(dur_st.attributes.get("min", 1))
+                max_val = float(dur_st.attributes.get("max", 120))
+                knob_val = float(new_state.state)
+                duration = round(min_val + (knob_val / 100.0) * (max_val - min_val))
+                duration = max(int(min_val), min(int(max_val), duration))
+            except (ValueError, TypeError):
+                return
+            hass.async_create_task(
+                hass.services.async_call(
+                    "number", "set_value",
+                    {"entity_id": duration_eid, "value": duration},
+                    blocking=False,
+                )
+            )
+            return
+
         if "." not in bank_entity:
             return
 
@@ -439,6 +467,35 @@ def _setup_bank_control_listener(
             return
 
         bank_entity = text_state.state
+
+        # Timer bank: sync current duration to gauge when idle (running handled by gauge_sync)
+        if bank_entity == "timer":
+            timer_state_id = f"select.{suffix}_timer_state"
+            timer_st = hass.states.get(timer_state_id)
+            if timer_st is None or timer_st.state != "idle":
+                return
+            duration_eid = f"number.{suffix}_timer_duration"
+            dur_st = hass.states.get(duration_eid)
+            if dur_st is None:
+                return
+            try:
+                min_val = float(dur_st.attributes.get("min", 1))
+                max_val = float(dur_st.attributes.get("max", 120))
+                raw = float(dur_st.state)
+                synced = round((raw - min_val) / (max_val - min_val) * 100) if max_val != min_val else 0
+                synced = max(0, min(100, synced))
+            except (ValueError, TypeError):
+                return
+            value_entity_id = f"number.{suffix}_bank_{bank_idx}_value"
+            hass.async_create_task(
+                hass.services.async_call(
+                    "number", "set_value",
+                    {"entity_id": value_entity_id, "value": synced},
+                    blocking=False,
+                )
+            )
+            return
+
         if "." not in bank_entity:
             return
 
