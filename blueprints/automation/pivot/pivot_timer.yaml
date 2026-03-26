@@ -361,9 +361,6 @@ action:
                           event_data:
                             suffix: "{{ suffix }}"
                             press_type: single_press
-                        - trigger: state
-                          entity_id: "script.{{ suffix }}_bank_toggle"
-                          to: "on"
                       timeout:
                         seconds: 4
                       continue_on_timeout: true
