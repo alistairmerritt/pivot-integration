@@ -265,7 +265,7 @@ def get_timer_number_definitions(suffix: str) -> list[dict]:
             "name": "Timer Duration",
             "icon": "mdi:timer-cog-outline",
             "min": 1.0,
-            "max": 120.0,
+            "max": 60.0,
             "step": 1.0,
             "unit": "min",
             "initial": 25.0,

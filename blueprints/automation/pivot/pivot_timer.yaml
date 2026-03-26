@@ -441,6 +441,11 @@ action:
                   entity_id: "{{ bank_value_entity }}"
                 data:
                   value: 0
+              # Hold the automation queue for 3 s so the dismiss press becomes stale
+              # (> 2 s since time_fired) before any queued button_press instance runs.
+              # Without this, the queued instance sees idle state and starts a new timer.
+              - delay:
+                  seconds: 3
 
             else:
               # ── Still running — update gauge ──────────────────────────────
