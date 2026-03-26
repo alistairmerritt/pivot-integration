@@ -290,71 +290,18 @@ action:
 
               # Alert loop — plays sound + flashes gauge until single press or 10 repeats.
               #
-              # Two-trigger dismiss strategy:
-              #   1. pivot_button_press event — fires immediately on press (catches presses
-              #      during the wait window).
-              #   2. script.{suffix}_bank_toggle state → on — the firmware calls this script
-              #      via HA API ~2-3 s after any press. This catches presses that happened
-              #      during the flash sequence, when no event listener was active.
-              #
-              # The 4-second timeout covers the 2-3 s API lag plus buffer.
+              # Dismiss strategy:
+              #   • Pre-check (200 ms) at the start of each iteration catches presses that
+              #     fired during the previous iteration's flash window, when no listener
+              #     was active.
+              #   • Main wait (4 s) after the flash catches presses during the quiet window.
+              #   If the pre-check catches a press, the flash/wait are skipped entirely.
               - variables:
                   dismissed: false
               - repeat:
                   until: "{{ dismissed or repeat.index >= 10 }}"
                   sequence:
-                    # Play finish sound
-                    - action: media_player.play_media
-                      target:
-                        entity_id: "{{ media_player }}"
-                      data:
-                        media_content_id: "{{ finish_sound }}"
-                        media_content_type: music
-                    # Flash gauge 3 times (150 ms each = 0.9 s total flash window)
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 100
-                    - delay:
-                        milliseconds: 150
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 0
-                    - delay:
-                        milliseconds: 150
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 100
-                    - delay:
-                        milliseconds: 150
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 0
-                    - delay:
-                        milliseconds: 150
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 100
-                    - delay:
-                        milliseconds: 150
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 0
-                    # Wait for dismiss — two triggers so presses are never missed:
-                    # • event trigger: immediate (catches presses during this wait window)
-                    # • script trigger: catches presses from the flash window above,
-                    #   arriving ~2-3 s later via the firmware's HA API call
+                    # Pre-check: catch any press from the previous iteration's flash window
                     - wait_for_trigger:
                         - trigger: event
                           event_type: pivot_button_press
@@ -362,10 +309,75 @@ action:
                             suffix: "{{ suffix }}"
                             press_type: single_press
                       timeout:
-                        seconds: 4
+                        milliseconds: 200
                       continue_on_timeout: true
                     - variables:
                         dismissed: "{{ wait.trigger is not none }}"
+                    # Only play sound + flash + wait if not already dismissed
+                    - if:
+                        - condition: template
+                          value_template: "{{ not dismissed }}"
+                      then:
+                        # Play finish sound
+                        - action: media_player.play_media
+                          target:
+                            entity_id: "{{ media_player }}"
+                          data:
+                            media_content_id: "{{ finish_sound }}"
+                            media_content_type: music
+                        # Flash gauge 3 times (150 ms each = 0.9 s total flash window)
+                        - action: number.set_value
+                          target:
+                            entity_id: "{{ bank_value_entity }}"
+                          data:
+                            value: 100
+                        - delay:
+                            milliseconds: 150
+                        - action: number.set_value
+                          target:
+                            entity_id: "{{ bank_value_entity }}"
+                          data:
+                            value: 0
+                        - delay:
+                            milliseconds: 150
+                        - action: number.set_value
+                          target:
+                            entity_id: "{{ bank_value_entity }}"
+                          data:
+                            value: 100
+                        - delay:
+                            milliseconds: 150
+                        - action: number.set_value
+                          target:
+                            entity_id: "{{ bank_value_entity }}"
+                          data:
+                            value: 0
+                        - delay:
+                            milliseconds: 150
+                        - action: number.set_value
+                          target:
+                            entity_id: "{{ bank_value_entity }}"
+                          data:
+                            value: 100
+                        - delay:
+                            milliseconds: 150
+                        - action: number.set_value
+                          target:
+                            entity_id: "{{ bank_value_entity }}"
+                          data:
+                            value: 0
+                        # Wait for dismiss
+                        - wait_for_trigger:
+                            - trigger: event
+                              event_type: pivot_button_press
+                              event_data:
+                                suffix: "{{ suffix }}"
+                                press_type: single_press
+                          timeout:
+                            seconds: 4
+                          continue_on_timeout: true
+                        - variables:
+                            dismissed: "{{ wait.trigger is not none }}"
 
               # Final cleanup — ensure gauge is off
               - action: number.set_value
