@@ -59,9 +59,6 @@ blueprint:
       selector:
         text:
 
-trigger_variables:
-  t_suffix: !input suffix
-
 variables:
   suffix: !input suffix
   bank: !input bank
@@ -85,8 +82,8 @@ trigger:
     seconds: "/5"
     id: gauge_sync
 
-  - trigger: state
-    entity_id: "number.{{ t_suffix }}_timer_duration"
+  - trigger: event
+    event_type: pivot_timer_duration_set
     id: duration_changed
 
 action:
@@ -393,12 +390,15 @@ action:
           - condition: template
             value_template: >
               {{ trigger.id == 'duration_changed'
+                 and trigger.event.data.suffix == suffix
                  and is_state(timer_state_entity, 'idle') }}
         sequence:
           # Debounce — wait for the knob to stop turning
           - wait_for_trigger:
-              - trigger: state
-                entity_id: "{{ duration_entity }}"
+              - trigger: event
+                event_type: pivot_timer_duration_set
+                event_data:
+                  suffix: "{{ suffix }}"
             timeout:
               milliseconds: 600
             continue_on_timeout: true

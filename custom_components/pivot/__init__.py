@@ -404,6 +404,10 @@ def _setup_bank_control_listener(
                     blocking=False,
                 )
             )
+            hass.bus.async_fire(
+                "pivot_timer_duration_set",
+                {"suffix": suffix, "bank": bank_idx + 1, "duration": duration},
+            )
             return
 
         if "." not in bank_entity:
