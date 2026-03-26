@@ -512,6 +512,17 @@ def _setup_bank_control_listener(
         domain = bank_entity.split(".")[0]
         value_entity_id = f"number.{suffix}_bank_{bank_idx}_value"
 
+        # Passive banks (scene/script) have no controllable value — zero the gauge
+        if domain in ("scene", "script"):
+            hass.async_create_task(
+                hass.services.async_call(
+                    "number", "set_value",
+                    {"entity_id": value_entity_id, "value": 0},
+                    blocking=False,
+                )
+            )
+            return
+
         hass.async_create_task(
             _sync_value_from_entity(hass, domain, bank_entity, value_entity_id)
         )
@@ -578,6 +589,41 @@ def _setup_bank_control_listener(
     def _on_bank_assignment_changed(event) -> None:
         """Re-register entity watchers when a bank's assigned entity changes."""
         _register_assigned_entity_watchers()
+
+        # If the active bank was just reassigned to a passive entity, zero the gauge
+        new_state = event.data.get("new_state")
+        if new_state is None or new_state.state in ("", "unknown", "unavailable"):
+            return
+        changed_entity_text_id = event.data.get("entity_id", "")
+        bank_idx = None
+        for bank in range(NUM_BANKS):
+            if changed_entity_text_id == f"text.{suffix}_bank_{bank}_entity":
+                bank_idx = bank
+                break
+        if bank_idx is None:
+            return
+        active_bank_state = hass.states.get(active_bank_entity_id)
+        if active_bank_state is None:
+            return
+        try:
+            active_bank_idx = int(float(active_bank_state.state)) - 1
+        except ValueError:
+            return
+        if active_bank_idx != bank_idx:
+            return
+        bank_entity = new_state.state
+        if "." not in bank_entity:
+            return
+        domain = bank_entity.split(".")[0]
+        if domain in ("scene", "script"):
+            value_entity_id = f"number.{suffix}_bank_{bank_idx}_value"
+            hass.async_create_task(
+                hass.services.async_call(
+                    "number", "set_value",
+                    {"entity_id": value_entity_id, "value": 0},
+                    blocking=False,
+                )
+            )
 
     _register_assigned_entity_watchers()
 
