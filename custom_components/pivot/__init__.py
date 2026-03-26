@@ -421,8 +421,8 @@ def _setup_bank_control_listener(
 
         domain = bank_entity.split(".")[0]
 
-        # Skip passive domains -- knob does nothing for scenes/scripts
-        if domain in ("scene", "script"):
+        # Skip passive domains -- knob does nothing for scenes/scripts/switches
+        if domain in ("scene", "script", "switch", "input_boolean"):
             return
 
         try:
@@ -513,7 +513,7 @@ def _setup_bank_control_listener(
         value_entity_id = f"number.{suffix}_bank_{bank_idx}_value"
 
         # Passive banks (scene/script) have no controllable value — zero the gauge
-        if domain in ("scene", "script"):
+        if domain in ("scene", "script", "switch", "input_boolean"):
             hass.async_create_task(
                 hass.services.async_call(
                     "number", "set_value",
@@ -615,7 +615,7 @@ def _setup_bank_control_listener(
         if "." not in bank_entity:
             return
         domain = bank_entity.split(".")[0]
-        if domain in ("scene", "script"):
+        if domain in ("scene", "script", "switch", "input_boolean"):
             value_entity_id = f"number.{suffix}_bank_{bank_idx}_value"
             hass.async_create_task(
                 hass.services.async_call(
