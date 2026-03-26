@@ -8,6 +8,8 @@ blueprint:
     - **Gauge** — updates every 5 seconds while the timer is running, draining from 100% to 0% as time runs out.
     - **Finish** — flashes the gauge and plays the finish sound repeatedly until dismissed with a single press.
       Optionally speaks a TTS message once before the alert loop begins.
+    - **TTS** — if a TTS entity is configured, spoken announcements play on start (*"25 minute timer started"*),
+      pause (*"Timer paused. 12 minutes remaining"*), resume (*"Timer resumed"*), and finish.
 
     All entity references are derived from the `suffix` input — no manual entity picking required.
 
@@ -87,11 +89,14 @@ trigger:
     id: duration_changed
 
 action:
-  # Discard stale button press events — prevents queued presses from a
+  # Discard stale single_press events — prevents queued presses from a
   # previous state firing back-to-back and causing spurious transitions.
+  # Long press is exempt: it can queue behind gauge_sync instances and
+  # must not be discarded simply because it waited in the queue.
   - condition: template
     value_template: >
       {{ trigger.id != 'button_press' or
+         trigger.event.data.press_type == 'long_press' or
          (now() - trigger.event.time_fired).total_seconds() < 2 }}
 
   - choose:
@@ -133,6 +138,26 @@ action:
                   - action: switch.turn_off
                     target:
                       entity_id: "{{ dim_switch_entity }}"
+                  - if:
+                      - condition: template
+                        value_template: "{{ tts_entity | length > 0 }}"
+                    then:
+                      - action: tts.speak
+                        target:
+                          entity_id: "{{ tts_entity }}"
+                        data:
+                          media_player_entity_id: "{{ media_player }}"
+                          message: >
+                            {% set mins = states(duration_entity) | int(25) %}
+                            {% set h = mins // 60 %}
+                            {% set m = mins % 60 %}
+                            {% if h > 0 and m > 0 %}
+                              {{ h }} hour{{ 's' if h > 1 else '' }} and {{ m }} minute{{ 's' if m > 1 else '' }} timer started.
+                            {% elif h > 0 %}
+                              {{ h }} hour{{ 's' if h > 1 else '' }} timer started.
+                            {% else %}
+                              {{ m }} minute{{ 's' if m > 1 else '' }} timer started.
+                            {% endif %}
 
               # Running → pause (store remaining as P{seconds})
               - conditions:
@@ -167,6 +192,27 @@ action:
                       value: >
                         {% set dur_secs = states(duration_entity) | int(25) * 60 | float %}
                         {{ [0, [100, (remaining_secs | float / dur_secs * 100) | round(0) | int] | min] | max if dur_secs > 0 else 0 }}
+                  - if:
+                      - condition: template
+                        value_template: "{{ tts_entity | length > 0 }}"
+                    then:
+                      - action: tts.speak
+                        target:
+                          entity_id: "{{ tts_entity }}"
+                        data:
+                          media_player_entity_id: "{{ media_player }}"
+                          message: >
+                            {% set h = (remaining_secs // 3600) | int %}
+                            {% set m = ((remaining_secs % 3600) // 60) | int %}
+                            {% if h > 0 and m > 0 %}
+                              Timer paused. {{ h }} hour{{ 's' if h > 1 else '' }} and {{ m }} minute{{ 's' if m > 1 else '' }} remaining.
+                            {% elif h > 0 %}
+                              Timer paused. {{ h }} hour{{ 's' if h > 1 else '' }} remaining.
+                            {% elif m > 0 %}
+                              Timer paused. {{ m }} minute{{ 's' if m > 1 else '' }} remaining.
+                            {% else %}
+                              Timer paused. Less than a minute remaining.
+                            {% endif %}
 
               # Paused → resume (read P{secs} and recalculate end time)
               - conditions:
@@ -189,6 +235,16 @@ action:
                   - action: switch.turn_off
                     target:
                       entity_id: "{{ dim_switch_entity }}"
+                  - if:
+                      - condition: template
+                        value_template: "{{ tts_entity | length > 0 }}"
+                    then:
+                      - action: tts.speak
+                        target:
+                          entity_id: "{{ tts_entity }}"
+                        data:
+                          media_player_entity_id: "{{ media_player }}"
+                          message: Timer resumed.
 
       # ── Long press: cancel and reset gauge ─────────────────────────────────
       - conditions:
