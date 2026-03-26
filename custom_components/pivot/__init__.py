@@ -89,12 +89,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Zero bank values for passive domains on startup so the firmware cache
     # is correct even if HA restarted while a passive entity was assigned.
+    # Also zero input_number.vpe_control_value (the firmware LED gauge entity)
+    # if the currently active bank is passive.
     _PASSIVE_DOMAINS_STARTUP = {"scene", "script", "switch", "input_boolean"}
     for _i in range(NUM_BANKS):
         _text_eid = f"text.{suffix}_bank_{_i}_entity"
         _value_eid = f"number.{suffix}_bank_{_i}_value"
+        _active_bank_eid = f"number.{suffix}_active_bank"
+        _bank_idx = _i
 
-        async def _zero_if_passive(t_eid=_text_eid, v_eid=_value_eid) -> None:
+        async def _zero_if_passive(
+            t_eid=_text_eid, v_eid=_value_eid,
+            ab_eid=_active_bank_eid, b_idx=_bank_idx,
+        ) -> None:
             text_state = hass.states.get(t_eid)
             if text_state is None or text_state.state in ("", "unknown", "unavailable"):
                 return
@@ -108,6 +115,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         {"entity_id": v_eid, "value": 0},
                         blocking=False,
                     )
+                except Exception:
+                    pass
+                # Zero the firmware gauge only if this is the active bank
+                try:
+                    ab_state = hass.states.get(ab_eid)
+                    active_idx = int(float(ab_state.state)) - 1 if ab_state else -1
+                    if active_idx == b_idx:
+                        await hass.services.async_call(
+                            "input_number", "set_value",
+                            {"entity_id": "input_number.vpe_control_value", "value": 0},
+                            blocking=False,
+                        )
                 except Exception:
                     pass
 
@@ -538,12 +557,22 @@ def _setup_bank_control_listener(
         domain = bank_entity.split(".")[0]
         value_entity_id = f"number.{suffix}_bank_{bank_idx}_value"
 
-        # Passive banks (scene/script) have no controllable value — zero the gauge
+        # Passive banks (scene/script/switch/input_boolean) have no controllable
+        # value — zero both the HA bank value entity and the firmware gauge.
+        # The firmware LED gauge is driven by input_number.vpe_control_value
+        # (not by number.{suffix}_bank_N_value), so we must write to both.
         if domain in ("scene", "script", "switch", "input_boolean"):
             hass.async_create_task(
                 hass.services.async_call(
                     "number", "set_value",
                     {"entity_id": value_entity_id, "value": 0},
+                    blocking=False,
+                )
+            )
+            hass.async_create_task(
+                hass.services.async_call(
+                    "input_number", "set_value",
+                    {"entity_id": "input_number.vpe_control_value", "value": 0},
                     blocking=False,
                 )
             )
@@ -647,6 +676,13 @@ def _setup_bank_control_listener(
                 hass.services.async_call(
                     "number", "set_value",
                     {"entity_id": value_entity_id, "value": 0},
+                    blocking=False,
+                )
+            )
+            hass.async_create_task(
+                hass.services.async_call(
+                    "input_number", "set_value",
+                    {"entity_id": "input_number.vpe_control_value", "value": 0},
                     blocking=False,
                 )
             )
