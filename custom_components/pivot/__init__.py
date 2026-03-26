@@ -394,7 +394,7 @@ def _setup_bank_control_listener(
                 max_val = float(dur_st.attributes.get("max", 120))
                 knob_val = float(new_state.state)
                 duration = round(min_val + (knob_val / 100.0) * (max_val - min_val))
-                duration = max(int(min_val), min(int(max_val), duration))
+                duration = max(int(min_val), min(int(max_val), max(1, duration)))
             except (ValueError, TypeError):
                 return
             hass.async_create_task(
