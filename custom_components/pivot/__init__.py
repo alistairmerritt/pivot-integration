@@ -87,6 +87,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     pass
             hass.async_create_task(_write_bank())
 
+    # Zero bank values for passive domains on startup so the firmware cache
+    # is correct even if HA restarted while a passive entity was assigned.
+    _PASSIVE_DOMAINS_STARTUP = {"scene", "script", "switch", "input_boolean"}
+    for _i in range(NUM_BANKS):
+        _text_eid = f"text.{suffix}_bank_{_i}_entity"
+        _value_eid = f"number.{suffix}_bank_{_i}_value"
+
+        async def _zero_if_passive(t_eid=_text_eid, v_eid=_value_eid) -> None:
+            text_state = hass.states.get(t_eid)
+            if text_state is None or text_state.state in ("", "unknown", "unavailable"):
+                return
+            bank_entity = text_state.state
+            if "." not in bank_entity:
+                return
+            if bank_entity.split(".")[0] in _PASSIVE_DOMAINS_STARTUP:
+                try:
+                    await hass.services.async_call(
+                        "number", "set_value",
+                        {"entity_id": v_eid, "value": 0},
+                        blocking=False,
+                    )
+                except Exception:
+                    pass
+
+        hass.async_create_task(_zero_if_passive())
+
     # Set up mirror light listeners — watches assigned lights and mirror switches,
     # writes hex colour to the bank colour text entity when mirror is enabled
     unsubs_mirror = _setup_mirror_listeners(hass, entry)
