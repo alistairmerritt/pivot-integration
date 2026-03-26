@@ -59,6 +59,9 @@ blueprint:
       selector:
         text:
 
+trigger_variables:
+  t_suffix: !input suffix
+
 variables:
   suffix: !input suffix
   bank: !input bank
@@ -83,7 +86,7 @@ trigger:
     id: gauge_sync
 
   - trigger: state
-    entity_id: "number.{{ suffix }}_timer_duration"
+    entity_id: "number.{{ t_suffix }}_timer_duration"
     id: duration_changed
 
 action:
