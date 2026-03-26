@@ -258,6 +258,13 @@ action:
                 target:
                   entity_id: "{{ dim_switch_entity }}"
 
+              # Switch back to the timer bank so the flash is visible and a tap dismisses it
+              - action: number.set_value
+                target:
+                  entity_id: "number.{{ suffix }}_active_bank"
+                data:
+                  value: "{{ bank }}"
+
               # Optional one-off TTS announcement before the alert loop
               - if:
                   - condition: template
