@@ -70,6 +70,7 @@ variables:
   timer_end_entity: "text.{{ suffix }}_timer_end"
   bank_value_entity: "number.{{ suffix }}_bank_{{ bank | int - 1 }}_value"
   bank_entity_text_entity: "text.{{ suffix }}_bank_{{ bank | int - 1 }}_entity"
+  dim_switch_entity: "switch.{{ suffix }}_dim_when_idle"
   finish_sound: "https://raw.githubusercontent.com/esphome/home-assistant-voice-pe/dev/sounds/timer_finished.flac"
 
 trigger:
@@ -120,6 +121,9 @@ action:
                       entity_id: "{{ timer_state_entity }}"
                     data:
                       option: running
+                  - action: switch.turn_off
+                    target:
+                      entity_id: "{{ dim_switch_entity }}"
 
               # Running → pause (store remaining as P{seconds})
               - conditions:
@@ -144,6 +148,9 @@ action:
                       entity_id: "{{ timer_state_entity }}"
                     data:
                       option: paused
+                  - action: switch.turn_on
+                    target:
+                      entity_id: "{{ dim_switch_entity }}"
                   - action: number.set_value
                     target:
                       entity_id: "{{ bank_value_entity }}"
@@ -170,6 +177,9 @@ action:
                       entity_id: "{{ timer_state_entity }}"
                     data:
                       option: running
+                  - action: switch.turn_off
+                    target:
+                      entity_id: "{{ dim_switch_entity }}"
 
       # ── Long press: cancel and reset gauge ─────────────────────────────────
       - conditions:
@@ -198,6 +208,9 @@ action:
               entity_id: "{{ timer_state_entity }}"
             data:
               option: idle
+          - action: switch.turn_on
+            target:
+              entity_id: "{{ dim_switch_entity }}"
 
       # ── Every 5 seconds: sync gauge and detect finish ──────────────────────
       - conditions:
@@ -241,6 +254,9 @@ action:
                   entity_id: "{{ bank_value_entity }}"
                 data:
                   value: 0
+              - action: switch.turn_on
+                target:
+                  entity_id: "{{ dim_switch_entity }}"
 
               # Optional one-off TTS announcement before the alert loop
               - if:
