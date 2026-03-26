@@ -349,9 +349,11 @@ action:
               # Dismiss strategy:
               #   • Pre-check (200 ms) at the start of each iteration catches presses that
               #     fired during the previous iteration's flash window, when no listener
-              #     was active.
+              #     was active. If caught, a condition action aborts the rest of the
+              #     iteration — the until check then sees dismissed=true and exits.
               #   • Main wait (4 s) after the flash catches presses during the quiet window.
-              #   If the pre-check catches a press, the flash/wait are skipped entirely.
+              #   All dismissed assignments are at the sequence top level (never inside
+              #   nested blocks) so repeat...until always reads the correct value.
               - variables:
                   dismissed: false
               - repeat:
@@ -369,71 +371,69 @@ action:
                       continue_on_timeout: true
                     - variables:
                         dismissed: "{{ wait.trigger is not none }}"
-                    # Only play sound + flash + wait if not already dismissed
-                    - if:
-                        - condition: template
-                          value_template: "{{ not dismissed }}"
-                      then:
-                        # Play finish sound
-                        - action: media_player.play_media
-                          target:
-                            entity_id: "{{ media_player }}"
-                          data:
-                            media_content_id: "{{ finish_sound }}"
-                            media_content_type: music
-                        # Flash gauge 3 times (150 ms each = 0.9 s total flash window)
-                        - action: number.set_value
-                          target:
-                            entity_id: "{{ bank_value_entity }}"
-                          data:
-                            value: 100
-                        - delay:
-                            milliseconds: 150
-                        - action: number.set_value
-                          target:
-                            entity_id: "{{ bank_value_entity }}"
-                          data:
-                            value: 0
-                        - delay:
-                            milliseconds: 150
-                        - action: number.set_value
-                          target:
-                            entity_id: "{{ bank_value_entity }}"
-                          data:
-                            value: 100
-                        - delay:
-                            milliseconds: 150
-                        - action: number.set_value
-                          target:
-                            entity_id: "{{ bank_value_entity }}"
-                          data:
-                            value: 0
-                        - delay:
-                            milliseconds: 150
-                        - action: number.set_value
-                          target:
-                            entity_id: "{{ bank_value_entity }}"
-                          data:
-                            value: 100
-                        - delay:
-                            milliseconds: 150
-                        - action: number.set_value
-                          target:
-                            entity_id: "{{ bank_value_entity }}"
-                          data:
-                            value: 0
-                        # Wait for dismiss
-                        - wait_for_trigger:
-                            - trigger: event
-                              event_type: pivot_button_press
-                              event_data:
-                                suffix: "{{ suffix }}"
-                                press_type: single_press
-                          timeout:
-                            seconds: 4
-                          continue_on_timeout: true
-                        - variables:
-                            dismissed: "{{ wait.trigger is not none }}"
+                    # Abort rest of iteration if already dismissed — until will exit the loop
+                    - condition: template
+                      value_template: "{{ not dismissed }}"
+                    # Play finish sound
+                    - action: media_player.play_media
+                      target:
+                        entity_id: "{{ media_player }}"
+                      data:
+                        media_content_id: "{{ finish_sound }}"
+                        media_content_type: music
+                    # Flash gauge 3 times (500 ms on / 300 ms off)
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 100
+                    - delay:
+                        milliseconds: 500
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 0
+                    - delay:
+                        milliseconds: 300
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 100
+                    - delay:
+                        milliseconds: 500
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 0
+                    - delay:
+                        milliseconds: 300
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 100
+                    - delay:
+                        milliseconds: 500
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 0
+                    # Wait for dismiss
+                    - wait_for_trigger:
+                        - trigger: event
+                          event_type: pivot_button_press
+                          event_data:
+                            suffix: "{{ suffix }}"
+                            press_type: single_press
+                      timeout:
+                        seconds: 4
+                      continue_on_timeout: true
+                    - variables:
+                        dismissed: "{{ wait.trigger is not none }}"
 
               # Final cleanup — ensure gauge is off
               - action: number.set_value

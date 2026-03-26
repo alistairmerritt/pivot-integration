@@ -381,6 +381,12 @@ def _setup_bank_control_listener(
 
         # Timer bank: map knob value (0-100) to timer_duration when idle
         if bank_entity == "timer":
+            # Only respond to genuine device pushes (physical knob turns).
+            # Automation/blueprint service calls carry a non-None context.parent_id;
+            # skip those so the alert loop's gauge flashing and cancel resets
+            # don't trigger spurious duration announcements.
+            if new_state.context.parent_id is not None:
+                return
             timer_state_id = f"select.{suffix}_timer_state"
             timer_st = hass.states.get(timer_state_id)
             if timer_st is None or timer_st.state != "idle":
