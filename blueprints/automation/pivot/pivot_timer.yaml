@@ -108,14 +108,13 @@ action:
       # ── Any press while alerting: dismiss immediately ────────────────────────
       # Runs as a parallel instance the moment the button is pressed — does not
       # wait for the alert loop to reach a wait_for_trigger step.
+      # No bank match required — any press on this device dismisses the alarm.
       - conditions:
           - condition: template
             value_template: >
               {{ trigger.id == 'button_press'
                  and trigger.event.data.suffix == suffix
-                 and trigger.event.data.bank | int == bank | int }}
-          - condition: template
-            value_template: "{{ is_state(timer_state_entity, 'alerting') }}"
+                 and is_state(timer_state_entity, 'alerting') }}
         sequence:
           - action: select.select_option
             target:
