@@ -100,26 +100,22 @@ def _suffix_in_use(hass: HomeAssistant, suffix: str) -> bool:
 
 
 def _bank_entity_schema(current: dict[str, str] | None = None) -> vol.Schema:
-    """Build a schema with one EntitySelector per bank.
+    """Build a schema with one TextSelector per bank.
 
     Fields are fully optional — leaving a bank empty is valid.
-    We avoid default="" because EntitySelector rejects empty string as an invalid entity ID.
+    TextSelector is used instead of EntitySelector because "timer" is a valid
+    special-case value that EntitySelector rejects as not a real entity ID.
     """
     current = current or {}
     fields = {}
-    entity_sel = selector.EntitySelector(
-        selector.EntitySelectorConfig(
-            domain=["light", "switch", "fan", "climate", "media_player", "cover", "scene", "script", "input_number", "number"],
-            multiple=False,
-        )
-    )
+    text_sel = selector.TextSelector(selector.TextSelectorConfig())
     for i in range(NUM_BANKS):
         key = f"bank_{i}_entity"
         existing = current.get(key) or None
         if existing:
-            fields[vol.Optional(key, default=existing)] = entity_sel
+            fields[vol.Optional(key, default=existing)] = text_sel
         else:
-            fields[vol.Optional(key)] = entity_sel
+            fields[vol.Optional(key)] = text_sel
     return vol.Schema(fields)
 
 
