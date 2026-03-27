@@ -4,7 +4,7 @@ blueprint:
     Turns a Pivot bank into a Pomodoro-style countdown timer.
 
     - **Single press** on the selected bank — start if idle, pause if running, resume if paused.
-    - **Long press** on the selected bank — cancel and reset the gauge to 0.
+    - **Long press** on the device (any bank) — cancel and reset the timer.
     - **Gauge** — updates every 5 seconds while the timer is running, draining from 100% to 0% as time runs out.
     - **Finish** — the device plays the built-in alarm sound and pulses the LED ring (same as the stock VPE timer).
       Single press dismisses the alarm. Optionally speaks a TTS message once before the alarm begins.
@@ -247,19 +247,20 @@ action:
                           message: Timer resumed.
 
       # ── Long press: cancel and reset gauge ─────────────────────────────────
-      # Guarded against alerting state — during the alarm single press dismisses
-      # (handled by the firmware); long press is ignored so it can't corrupt state.
+      # No bank check — long press is a deliberate, 1-second hold.  It cancels
+      # the timer from any bank on this device so the user doesn't have to switch
+      # back to the timer bank first.  Guarded against alerting state — during
+      # the alarm, single press dismisses natively in firmware.
       - conditions:
           - condition: template
             value_template: >
               {{ trigger.id == 'button_press'
                  and trigger.event.data.suffix == suffix
-                 and trigger.event.data.bank | int == bank | int
                  and trigger.event.data.press_type == 'long_press' }}
           - condition: template
-            value_template: "{{ is_state(bank_entity_text_entity, 'timer') }}"
-          - condition: template
-            value_template: "{{ not is_state(timer_state_entity, 'alerting') }}"
+            value_template: >
+              {{ is_state(timer_state_entity, 'running')
+                 or is_state(timer_state_entity, 'paused') }}
         sequence:
           - action: text.set_value
             target:
@@ -361,6 +362,36 @@ action:
                   entity_id: "{{ bank_value_entity }}"
                 data:
                   value: "{{ progress }}"
+
+      # ── Every 5 seconds: auto-cancel if paused for more than 30 minutes ────
+      # Prevents the timer from being stuck in paused state indefinitely.
+      # Uses the last_changed timestamp of the timer_state entity — which updates
+      # when the state becomes 'paused' — to measure how long the pause has lasted.
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ trigger.id == 'gauge_sync'
+                 and is_state(timer_state_entity, 'paused')
+                 and (now() - states[timer_state_entity].last_changed).total_seconds() > 1800 }}
+        sequence:
+          - action: text.set_value
+            target:
+              entity_id: "{{ timer_end_entity }}"
+            data:
+              value: ""
+          - action: number.set_value
+            target:
+              entity_id: "{{ bank_value_entity }}"
+            data:
+              value: 0
+          - action: select.select_option
+            target:
+              entity_id: "{{ timer_state_entity }}"
+            data:
+              option: idle
+          - action: switch.turn_on
+            target:
+              entity_id: "{{ dim_switch_entity }}"
 
       # ── Duration changed (knob turned while idle): announce selected time ──
       - conditions:
