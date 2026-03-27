@@ -94,8 +94,7 @@ trigger:
 action:
   # Discard stale single_press events — prevents queued presses from a
   # previous state firing back-to-back and causing spurious transitions.
-  # Long press is exempt: it can queue behind gauge_sync instances and
-  # must not be discarded simply because it waited in the queue.
+  # Long press is exempt: it can arrive slightly late and must not be discarded.
   # During alerting state, ALL press types are exempt — dismiss must always work.
   - condition: template
     value_template: >
@@ -107,7 +106,8 @@ action:
   - choose:
 
       # ── Any press while alerting: dismiss immediately ────────────────────────
-      # This is checked first so it takes priority over all other press handlers.
+      # Runs as a parallel instance the moment the button is pressed — does not
+      # wait for the alert loop to reach a wait_for_trigger step.
       - conditions:
           - condition: template
             value_template: >
@@ -131,7 +131,7 @@ action:
             target:
               entity_id: "{{ dim_switch_entity }}"
           # Hold here so this press becomes stale (> 2 s since time_fired) before
-          # any other queued button_press instance runs and tries to start the timer.
+          # any other parallel button_press instance sees idle state and starts the timer.
           - delay:
               seconds: 3
 
@@ -143,7 +143,6 @@ action:
                  and trigger.event.data.suffix == suffix
                  and trigger.event.data.bank | int == bank | int
                  and trigger.event.data.press_type == 'single_press' }}
-          # Only act when the bank entity is set to 'timer'
           - condition: template
             value_template: "{{ is_state(bank_entity_text_entity, 'timer') }}"
         sequence:
@@ -288,7 +287,6 @@ action:
                  and trigger.event.data.suffix == suffix
                  and trigger.event.data.bank | int == bank | int
                  and trigger.event.data.press_type == 'long_press' }}
-          # Only act when the bank entity is set to 'timer'
           - condition: template
             value_template: "{{ is_state(bank_entity_text_entity, 'timer') }}"
         sequence:
@@ -352,7 +350,7 @@ action:
                 target:
                   entity_id: "{{ dim_switch_entity }}"
 
-              # Switch back to the timer bank so the flash is visible and a tap dismisses it
+              # Switch back to the timer bank so the flash is visible
               - action: number.set_value
                 target:
                   entity_id: "number.{{ suffix }}_active_bank"
@@ -360,7 +358,8 @@ action:
                   value: "{{ bank }}"
 
               # Set state to 'alerting' — keeps the integration from treating gauge
-              # flashes as knob turns, and signals the dismiss handler to intercept presses.
+              # flashes as knob turns, and lets the parallel dismiss branch intercept
+              # any button press immediately without waiting for the loop.
               - action: select.select_option
                 target:
                   entity_id: "{{ timer_state_entity }}"
@@ -369,9 +368,7 @@ action:
 
               # Optional one-off TTS announcement before the alert loop.
               # The 3 s pause uses wait_for_trigger so a press during the announcement
-              # also dismisses immediately — no fixed sleep with a dead listener.
-              - variables:
-                  dismissed: false
+              # is also caught — no fixed sleep with a dead listener.
               - if:
                   - condition: template
                     value_template: "{{ tts_entity | length > 0 and finish_message | length > 0 }}"
@@ -390,16 +387,20 @@ action:
                     timeout:
                       seconds: 3
                     continue_on_timeout: true
-                  - variables:
-                      dismissed: "{{ wait.trigger is not none }}"
 
-              # Alert loop — plays sound + flashes gauge until dismissed or 10 repeats.
+              # Alert loop — flashes gauge and plays sound until state leaves 'alerting'
+              # or 10 repeats are exhausted.
               #
-              # Every delay is a wait_for_trigger so a button press is catchable at any
-              # point in the flash cycle — not just during the quiet window at the end.
-              # Both single_press and long_press dismiss the alert.
+              # mode: parallel means a button press creates a NEW instance that runs
+              # the dismiss branch immediately — it does not wait for this loop to reach
+              # a wait_for_trigger step. The loop tracks state (not a local variable) so
+              # it exits as soon as the dismiss instance sets state to 'idle'.
+              #
+              # wait_for_trigger is kept at each flash step for timing and as a secondary
+              # catch; the state condition after each one provides an early exit so the
+              # LEDs stop within one flash step of the dismiss.
               - repeat:
-                  until: "{{ dismissed or repeat.index >= 10 }}"
+                  until: "{{ not is_state(timer_state_entity, 'alerting') or repeat.index >= 10 }}"
                   sequence:
                     # Play finish sound
                     - action: media_player.play_media
@@ -408,6 +409,9 @@ action:
                       data:
                         media_content_id: "{{ finish_sound }}"
                         media_content_type: music
+                    # Exit early if dismissed during sound playback
+                    - condition: template
+                      value_template: "{{ is_state(timer_state_entity, 'alerting') }}"
                     # Flash 1 — on (750 ms)
                     - action: number.set_value
                       target:
@@ -422,10 +426,8 @@ action:
                       timeout:
                         milliseconds: 750
                       continue_on_timeout: true
-                    - variables:
-                        dismissed: "{{ wait.trigger is not none }}"
                     - condition: template
-                      value_template: "{{ not dismissed }}"
+                      value_template: "{{ is_state(timer_state_entity, 'alerting') }}"
                     # Flash 1 — off (400 ms)
                     - action: number.set_value
                       target:
@@ -440,10 +442,8 @@ action:
                       timeout:
                         milliseconds: 400
                       continue_on_timeout: true
-                    - variables:
-                        dismissed: "{{ wait.trigger is not none }}"
                     - condition: template
-                      value_template: "{{ not dismissed }}"
+                      value_template: "{{ is_state(timer_state_entity, 'alerting') }}"
                     # Flash 2 — on (750 ms)
                     - action: number.set_value
                       target:
@@ -458,10 +458,8 @@ action:
                       timeout:
                         milliseconds: 750
                       continue_on_timeout: true
-                    - variables:
-                        dismissed: "{{ wait.trigger is not none }}"
                     - condition: template
-                      value_template: "{{ not dismissed }}"
+                      value_template: "{{ is_state(timer_state_entity, 'alerting') }}"
                     # Flash 2 — off (400 ms)
                     - action: number.set_value
                       target:
@@ -476,11 +474,9 @@ action:
                       timeout:
                         milliseconds: 400
                       continue_on_timeout: true
-                    - variables:
-                        dismissed: "{{ wait.trigger is not none }}"
                     - condition: template
-                      value_template: "{{ not dismissed }}"
-                    # Quiet window — wait up to 4 s for a press between flashes
+                      value_template: "{{ is_state(timer_state_entity, 'alerting') }}"
+                    # Quiet window — 4 s between flash cycles
                     - wait_for_trigger:
                         - trigger: event
                           event_type: pivot_button_press
@@ -489,10 +485,10 @@ action:
                       timeout:
                         seconds: 4
                       continue_on_timeout: true
-                    - variables:
-                        dismissed: "{{ wait.trigger is not none }}"
 
-              # Final cleanup — ensure gauge is off and state returns to idle
+              # Final cleanup — runs when the loop exits, whether dismissed or exhausted.
+              # If dismissed, state is already 'idle' (set by the parallel dismiss branch).
+              # If exhausted (10 iterations), set idle here.
               - action: number.set_value
                 target:
                   entity_id: "{{ bank_value_entity }}"
@@ -503,11 +499,6 @@ action:
                   entity_id: "{{ timer_state_entity }}"
                 data:
                   option: idle
-              # Hold the automation queue for 3 s so the dismiss press becomes stale
-              # (> 2 s since time_fired) before any queued button_press instance runs.
-              # Without this, the queued instance sees idle state and starts a new timer.
-              - delay:
-                  seconds: 3
 
             else:
               # ── Still running — update gauge ──────────────────────────────
@@ -558,5 +549,11 @@ action:
                       {{ m }} minute timer. Press to start.
                     {% endif %}
 
-mode: queued
-max: 3
+# parallel mode is essential for reliable alert dismissal. In queued mode the
+# alert loop holds the queue and a button_press instance cannot run until the
+# loop reaches a wait_for_trigger step — so a press during media_player.play_media
+# or any other service call goes unhandled. In parallel mode the button_press
+# dismiss instance runs immediately, sets state to 'idle', and the alert loop
+# sees the state change at its next condition check.
+mode: parallel
+max: 5
