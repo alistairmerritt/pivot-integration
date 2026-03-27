@@ -53,7 +53,9 @@ blueprint:
       description: Text-to-speech entity for a one-off finish announcement. Leave blank to skip.
       default: ""
       selector:
-        text:
+        entity:
+          domain: tts
+          multiple: false
 
     finish_message:
       name: Finish Message (optional)
