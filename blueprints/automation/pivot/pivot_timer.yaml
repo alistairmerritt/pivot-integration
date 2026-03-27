@@ -414,8 +414,13 @@ action:
               milliseconds: 600
             continue_on_timeout: true
           # Only announce if nothing changed in that window (knob settled)
+          # AND this instance's duration still matches the current entity —
+          # guards against queued instances announcing stale values when the
+          # knob is turned slowly (gaps > 600 ms between clicks).
           - condition: template
-            value_template: "{{ wait.trigger is none }}"
+            value_template: >
+              {{ wait.trigger is none
+                 and states(duration_entity) | int == trigger.event.data.duration | int }}
           - if:
               - condition: template
                 value_template: "{{ tts_entity | length > 0 }}"
