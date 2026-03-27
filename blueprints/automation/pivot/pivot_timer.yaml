@@ -411,7 +411,7 @@ action:
                 event_data:
                   suffix: "{{ suffix }}"
             timeout:
-              milliseconds: 300
+              milliseconds: 150
             continue_on_timeout: true
           # Only announce if nothing changed in that window (knob settled)
           # AND this instance's duration still matches the current entity —
