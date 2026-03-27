@@ -10,7 +10,7 @@ blueprint:
     - **Finish** — flashes the gauge and plays the finish sound repeatedly until dismissed with any press, or after 10 repeats.
       Optionally speaks a TTS message once before the alert loop begins.
     - **TTS** — if a TTS entity is configured, spoken announcements play on start (*"25 minute timer started"*),
-      pause (*"Timer paused. 12 minutes remaining"*), resume (*"Timer resumed"*), and finish.
+      pause (*"Timer paused. 12 minute remaining"*), resume (*"Timer resumed"*), and finish.
 
     All entity references are derived from the `suffix` input — no manual entity picking required.
 
@@ -184,11 +184,11 @@ action:
                             {% set h = mins // 60 %}
                             {% set m = mins % 60 %}
                             {% if h > 0 and m > 0 %}
-                              {{ h }} hour{{ 's' if h > 1 else '' }} and {{ m }} minute{{ 's' if m > 1 else '' }} timer started.
+                              {{ h }} hour and {{ m }} minute timer started.
                             {% elif h > 0 %}
-                              {{ h }} hour{{ 's' if h > 1 else '' }} timer started.
+                              {{ h }} hour timer started.
                             {% else %}
-                              {{ m }} minute{{ 's' if m > 1 else '' }} timer started.
+                              {{ m }} minute timer started.
                             {% endif %}
 
               # Running → pause (store remaining as P{seconds})
@@ -237,11 +237,11 @@ action:
                             {% set h = (remaining_secs // 3600) | int %}
                             {% set m = ((remaining_secs % 3600) // 60) | int %}
                             {% if h > 0 and m > 0 %}
-                              Timer paused. {{ h }} hour{{ 's' if h > 1 else '' }} and {{ m }} minute{{ 's' if m > 1 else '' }} remaining.
+                              Timer paused. {{ h }} hour and {{ m }} minute remaining.
                             {% elif h > 0 %}
-                              Timer paused. {{ h }} hour{{ 's' if h > 1 else '' }} remaining.
+                              Timer paused. {{ h }} hour remaining.
                             {% elif m > 0 %}
-                              Timer paused. {{ m }} minute{{ 's' if m > 1 else '' }} remaining.
+                              Timer paused. {{ m }} minute remaining.
                             {% else %}
                               Timer paused. Less than a minute remaining.
                             {% endif %}
@@ -539,11 +539,11 @@ action:
                     {% set h = mins // 60 %}
                     {% set m = mins % 60 %}
                     {% if h > 0 and m > 0 %}
-                      {{ h }} hour{{ 's' if h > 1 else '' }} and {{ m }} minute{{ 's' if m > 1 else '' }} timer. Press to start.
+                      {{ h }} hour and {{ m }} minute timer. Press to start.
                     {% elif h > 0 %}
-                      {{ h }} hour{{ 's' if h > 1 else '' }} timer. Press to start.
+                      {{ h }} hour timer. Press to start.
                     {% else %}
-                      {{ m }} minute{{ 's' if m > 1 else '' }} timer. Press to start.
+                      {{ m }} minute timer. Press to start.
                     {% endif %}
 
 mode: queued
