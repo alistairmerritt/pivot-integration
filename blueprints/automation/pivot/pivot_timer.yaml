@@ -3,7 +3,7 @@ blueprint:
   description: >
     Turns a Pivot bank into a Pomodoro-style countdown timer.
 
-    - **Single press** on the selected bank — start if idle, pause if running, resume if paused.
+    - **Single press** on the selected bank — start if idle, pause if running, resume if paused. A 3-second cooldown after dismiss or cancel prevents accidental restarts.
     - **Long press** on the device (any bank) — cancel and reset the timer.
     - **Gauge** — updates every 30 seconds while the timer is running, draining from 100% to 0% as time runs out.
     - **Finish** — the device plays the built-in alarm sound and pulses the LED ring (same as the stock VPE timer).
@@ -114,10 +114,13 @@ action:
             value_template: "{{ is_state(bank_entity_text_entity, 'timer') }}"
         sequence:
           - choose:
-              # Idle → start
+              # Idle → start (3-second cooldown after dismiss or cancel)
               - conditions:
                   - condition: template
                     value_template: "{{ is_state(timer_state_entity, 'idle') }}"
+                  - condition: template
+                    value_template: >
+                      {{ (now() - states[timer_state_entity].last_changed).total_seconds() > 3 }}
                 sequence:
                   - action: text.set_value
                     target:
