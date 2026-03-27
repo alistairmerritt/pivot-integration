@@ -363,7 +363,7 @@ action:
                 data:
                   value: "{{ progress }}"
 
-      # ── Every 5 seconds: auto-cancel if paused for more than 30 minutes ────
+      # ── Every 5 seconds: auto-cancel if paused for more than 15 minutes ────
       # Prevents the timer from being stuck in paused state indefinitely.
       # Uses the last_changed timestamp of the timer_state entity — which updates
       # when the state becomes 'paused' — to measure how long the pause has lasted.
@@ -372,7 +372,7 @@ action:
             value_template: >
               {{ trigger.id == 'gauge_sync'
                  and is_state(timer_state_entity, 'paused')
-                 and (now() - states[timer_state_entity].last_changed).total_seconds() > 1800 }}
+                 and (now() - states[timer_state_entity].last_changed).total_seconds() > 900 }}
         sequence:
           - action: text.set_value
             target:
