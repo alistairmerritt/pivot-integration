@@ -285,7 +285,7 @@ def get_timer_select_definitions(suffix: str) -> list[dict]:
             "entity_id": entity_id("select", suffix, "timer_state"),
             "name": "Timer State",
             "icon": "mdi:timer",
-            "options": ["idle", "running", "paused"],
+            "options": ["idle", "running", "paused", "alerting"],
             "initial": "idle",
             "entity_registry_enabled_default": False,
         }

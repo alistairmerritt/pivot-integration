@@ -5,8 +5,9 @@ blueprint:
 
     - **Single press** on the selected bank — start if idle, pause if running, resume if paused.
     - **Long press** on the selected bank — cancel and reset the gauge to 0.
+    - **Any press** while the finish alert is active — immediately dismisses the alarm.
     - **Gauge** — updates every 5 seconds while the timer is running, draining from 100% to 0% as time runs out.
-    - **Finish** — flashes the gauge and plays the finish sound repeatedly until dismissed with a single press.
+    - **Finish** — flashes the gauge and plays the finish sound repeatedly until dismissed with any press, or after 10 repeats.
       Optionally speaks a TTS message once before the alert loop begins.
     - **TTS** — if a TTS entity is configured, spoken announcements play on start (*"25 minute timer started"*),
       pause (*"Timer paused. 12 minutes remaining"*), resume (*"Timer resumed"*), and finish.
@@ -93,13 +94,44 @@ action:
   # previous state firing back-to-back and causing spurious transitions.
   # Long press is exempt: it can queue behind gauge_sync instances and
   # must not be discarded simply because it waited in the queue.
+  # During alerting state, ALL press types are exempt — dismiss must always work.
   - condition: template
     value_template: >
       {{ trigger.id != 'button_press' or
          trigger.event.data.press_type == 'long_press' or
+         is_state(timer_state_entity, 'alerting') or
          (now() - trigger.event.time_fired).total_seconds() < 2 }}
 
   - choose:
+
+      # ── Any press while alerting: dismiss immediately ────────────────────────
+      # This is checked first so it takes priority over all other press handlers.
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ trigger.id == 'button_press'
+                 and trigger.event.data.suffix == suffix
+                 and trigger.event.data.bank | int == bank | int }}
+          - condition: template
+            value_template: "{{ is_state(timer_state_entity, 'alerting') }}"
+        sequence:
+          - action: select.select_option
+            target:
+              entity_id: "{{ timer_state_entity }}"
+            data:
+              option: idle
+          - action: number.set_value
+            target:
+              entity_id: "{{ bank_value_entity }}"
+            data:
+              value: 0
+          - action: switch.turn_on
+            target:
+              entity_id: "{{ dim_switch_entity }}"
+          # Hold here so this press becomes stale (> 2 s since time_fired) before
+          # any other queued button_press instance runs and tries to start the timer.
+          - delay:
+              seconds: 3
 
       # ── Single press: start / pause / resume ───────────────────────────────
       - conditions:
@@ -309,11 +341,6 @@ action:
                   entity_id: "{{ timer_end_entity }}"
                 data:
                   value: ""
-              - action: select.select_option
-                target:
-                  entity_id: "{{ timer_state_entity }}"
-                data:
-                  option: idle
               - action: number.set_value
                 target:
                   entity_id: "{{ bank_value_entity }}"
@@ -330,6 +357,14 @@ action:
                 data:
                   value: "{{ bank }}"
 
+              # Set state to 'alerting' — keeps the integration from treating gauge
+              # flashes as knob turns, and signals the dismiss handler to intercept presses.
+              - action: select.select_option
+                target:
+                  entity_id: "{{ timer_state_entity }}"
+                data:
+                  option: alerting
+
               # Optional one-off TTS announcement before the alert loop
               - if:
                   - condition: template
@@ -344,36 +379,16 @@ action:
                   - delay:
                       seconds: 3
 
-              # Alert loop — plays sound + flashes gauge until single press or 10 repeats.
+              # Alert loop — plays sound + flashes gauge until dismissed or 10 repeats.
               #
-              # Dismiss strategy:
-              #   • Pre-check (200 ms) at the start of each iteration catches presses that
-              #     fired during the previous iteration's flash window, when no listener
-              #     was active. If caught, a condition action aborts the rest of the
-              #     iteration — the until check then sees dismissed=true and exits.
-              #   • Main wait (4 s) after the flash catches presses during the quiet window.
-              #   All dismissed assignments are at the sequence top level (never inside
-              #   nested blocks) so repeat...until always reads the correct value.
+              # Every delay is a wait_for_trigger so a button press is catchable at any
+              # point in the flash cycle — not just during the quiet window at the end.
+              # Both single_press and long_press dismiss the alert.
               - variables:
                   dismissed: false
               - repeat:
                   until: "{{ dismissed or repeat.index >= 10 }}"
                   sequence:
-                    # Pre-check: catch any press from the previous iteration's flash window
-                    - wait_for_trigger:
-                        - trigger: event
-                          event_type: pivot_button_press
-                          event_data:
-                            suffix: "{{ suffix }}"
-                            press_type: single_press
-                      timeout:
-                        milliseconds: 200
-                      continue_on_timeout: true
-                    - variables:
-                        dismissed: "{{ wait.trigger is not none }}"
-                    # Abort rest of iteration if already dismissed — until will exit the loop
-                    - condition: template
-                      value_template: "{{ not dismissed }}"
                     # Play finish sound
                     - action: media_player.play_media
                       target:
@@ -381,66 +396,101 @@ action:
                       data:
                         media_content_id: "{{ finish_sound }}"
                         media_content_type: music
-                    # Flash gauge 3 times (500 ms on / 300 ms off)
+                    # Flash 1 — on (750 ms)
                     - action: number.set_value
                       target:
                         entity_id: "{{ bank_value_entity }}"
                       data:
                         value: 100
-                    - delay:
-                        milliseconds: 500
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 0
-                    - delay:
-                        milliseconds: 300
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 100
-                    - delay:
-                        milliseconds: 500
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 0
-                    - delay:
-                        milliseconds: 300
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 100
-                    - delay:
-                        milliseconds: 500
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 0
-                    # Wait for dismiss
                     - wait_for_trigger:
                         - trigger: event
                           event_type: pivot_button_press
                           event_data:
                             suffix: "{{ suffix }}"
-                            press_type: single_press
+                      timeout:
+                        milliseconds: 750
+                      continue_on_timeout: true
+                    - variables:
+                        dismissed: "{{ wait.trigger is not none }}"
+                    - condition: template
+                      value_template: "{{ not dismissed }}"
+                    # Flash 1 — off (400 ms)
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 0
+                    - wait_for_trigger:
+                        - trigger: event
+                          event_type: pivot_button_press
+                          event_data:
+                            suffix: "{{ suffix }}"
+                      timeout:
+                        milliseconds: 400
+                      continue_on_timeout: true
+                    - variables:
+                        dismissed: "{{ wait.trigger is not none }}"
+                    - condition: template
+                      value_template: "{{ not dismissed }}"
+                    # Flash 2 — on (750 ms)
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 100
+                    - wait_for_trigger:
+                        - trigger: event
+                          event_type: pivot_button_press
+                          event_data:
+                            suffix: "{{ suffix }}"
+                      timeout:
+                        milliseconds: 750
+                      continue_on_timeout: true
+                    - variables:
+                        dismissed: "{{ wait.trigger is not none }}"
+                    - condition: template
+                      value_template: "{{ not dismissed }}"
+                    # Flash 2 — off (400 ms)
+                    - action: number.set_value
+                      target:
+                        entity_id: "{{ bank_value_entity }}"
+                      data:
+                        value: 0
+                    - wait_for_trigger:
+                        - trigger: event
+                          event_type: pivot_button_press
+                          event_data:
+                            suffix: "{{ suffix }}"
+                      timeout:
+                        milliseconds: 400
+                      continue_on_timeout: true
+                    - variables:
+                        dismissed: "{{ wait.trigger is not none }}"
+                    - condition: template
+                      value_template: "{{ not dismissed }}"
+                    # Quiet window — wait up to 4 s for a press between flashes
+                    - wait_for_trigger:
+                        - trigger: event
+                          event_type: pivot_button_press
+                          event_data:
+                            suffix: "{{ suffix }}"
                       timeout:
                         seconds: 4
                       continue_on_timeout: true
                     - variables:
                         dismissed: "{{ wait.trigger is not none }}"
 
-              # Final cleanup — ensure gauge is off
+              # Final cleanup — ensure gauge is off and state returns to idle
               - action: number.set_value
                 target:
                   entity_id: "{{ bank_value_entity }}"
                 data:
                   value: 0
+              - action: select.select_option
+                target:
+                  entity_id: "{{ timer_state_entity }}"
+                data:
+                  option: idle
               # Hold the automation queue for 3 s so the dismiss press becomes stale
               # (> 2 s since time_fired) before any queued button_press instance runs.
               # Without this, the queued instance sees idle state and starts a new timer.
