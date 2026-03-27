@@ -365,7 +365,11 @@ action:
                 data:
                   option: alerting
 
-              # Optional one-off TTS announcement before the alert loop
+              # Optional one-off TTS announcement before the alert loop.
+              # The 3 s pause uses wait_for_trigger so a press during the announcement
+              # also dismisses immediately — no fixed sleep with a dead listener.
+              - variables:
+                  dismissed: false
               - if:
                   - condition: template
                     value_template: "{{ tts_entity | length > 0 and finish_message | length > 0 }}"
@@ -376,16 +380,22 @@ action:
                     data:
                       media_player_entity_id: "{{ media_player }}"
                       message: "{{ finish_message }}"
-                  - delay:
+                  - wait_for_trigger:
+                      - trigger: event
+                        event_type: pivot_button_press
+                        event_data:
+                          suffix: "{{ suffix }}"
+                    timeout:
                       seconds: 3
+                    continue_on_timeout: true
+                  - variables:
+                      dismissed: "{{ wait.trigger is not none }}"
 
               # Alert loop — plays sound + flashes gauge until dismissed or 10 repeats.
               #
               # Every delay is a wait_for_trigger so a button press is catchable at any
               # point in the flash cycle — not just during the quiet window at the end.
               # Both single_press and long_press dismiss the alert.
-              - variables:
-                  dismissed: false
               - repeat:
                   until: "{{ dismissed or repeat.index >= 10 }}"
                   sequence:
