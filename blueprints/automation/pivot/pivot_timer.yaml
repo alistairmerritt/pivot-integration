@@ -5,7 +5,7 @@ blueprint:
 
     - **Single press** on the selected bank — start if idle, pause if running, resume if paused.
     - **Long press** on the device (any bank) — cancel and reset the timer.
-    - **Gauge** — updates every 5 seconds while the timer is running, draining from 100% to 0% as time runs out.
+    - **Gauge** — updates every 30 seconds while the timer is running, draining from 100% to 0% as time runs out.
     - **Finish** — the device plays the built-in alarm sound and pulses the LED ring (same as the stock VPE timer).
       Single press dismisses the alarm. Optionally speaks a TTS message once before the alarm begins.
     - **TTS** — if a TTS entity is configured, spoken announcements play on start (*"25 minute timer started"*),
@@ -83,7 +83,7 @@ trigger:
     id: button_press
 
   - trigger: time_pattern
-    seconds: "/5"
+    seconds: "/30"
     id: gauge_sync
 
   - trigger: event
