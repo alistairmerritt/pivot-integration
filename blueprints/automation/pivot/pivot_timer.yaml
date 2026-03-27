@@ -5,10 +5,9 @@ blueprint:
 
     - **Single press** on the selected bank — start if idle, pause if running, resume if paused.
     - **Long press** on the selected bank — cancel and reset the gauge to 0.
-    - **Any press** while the finish alert is active — immediately dismisses the alarm.
     - **Gauge** — updates every 5 seconds while the timer is running, draining from 100% to 0% as time runs out.
-    - **Finish** — flashes the gauge and plays the finish sound repeatedly until dismissed with any press, or after 10 repeats.
-      Optionally speaks a TTS message once before the alert loop begins.
+    - **Finish** — the device plays the built-in alarm sound and pulses the LED ring (same as the stock VPE timer).
+      Single press dismisses the alarm. Optionally speaks a TTS message once before the alarm begins.
     - **TTS** — if a TTS entity is configured, spoken announcements play on start (*"25 minute timer started"*),
       pause (*"Timer paused. 12 minute remaining"*), resume (*"Timer resumed"*), and finish.
 
@@ -21,6 +20,7 @@ blueprint:
        (e.g. set `text.{suffix}_bank_3_entity` to `timer`). This tells Pivot that bank is reserved
        for the timer — the knob is automatically disabled and the timer blueprint takes over.
     3. Set your desired duration on `number.{suffix}_timer_duration` (default: 25 minutes).
+    4. Ensure the device has been reflashed to firmware v0.0.11 or later.
   domain: automation
   input:
     suffix:
@@ -43,14 +43,14 @@ blueprint:
 
     media_player:
       name: Media Player
-      description: Media player to play the finish alert through.
+      description: Media player for TTS announcements (start, pause, resume, finish).
       selector:
         entity:
           domain: media_player
 
     tts_entity:
       name: TTS Entity (optional)
-      description: Text-to-speech entity for a one-off finish announcement. Leave blank to skip.
+      description: Text-to-speech entity for spoken announcements. Leave blank to skip.
       default: ""
       selector:
         entity:
@@ -59,7 +59,7 @@ blueprint:
 
     finish_message:
       name: Finish Message (optional)
-      description: Message spoken by TTS once when the timer finishes (before the alert loop).
+      description: Message spoken by TTS once when the timer finishes (before the alarm begins).
       default: "Timer finished"
       selector:
         text:
@@ -76,7 +76,6 @@ variables:
   bank_value_entity: "number.{{ suffix }}_bank_{{ bank | int - 1 }}_value"
   bank_entity_text_entity: "text.{{ suffix }}_bank_{{ bank | int - 1 }}_entity"
   dim_switch_entity: "switch.{{ suffix }}_dim_when_idle"
-  finish_sound: "https://raw.githubusercontent.com/esphome/home-assistant-voice-pe/dev/sounds/timer_finished.flac"
 
 trigger:
   - trigger: event
@@ -95,44 +94,13 @@ action:
   # Discard stale single_press events — prevents queued presses from a
   # previous state firing back-to-back and causing spurious transitions.
   # Long press is exempt: it can arrive slightly late and must not be discarded.
-  # During alerting state, ALL press types are exempt — dismiss must always work.
   - condition: template
     value_template: >
       {{ trigger.id != 'button_press' or
          trigger.event.data.press_type == 'long_press' or
-         is_state(timer_state_entity, 'alerting') or
          (now() - trigger.event.time_fired).total_seconds() < 2 }}
 
   - choose:
-
-      # ── Any press while alerting: dismiss immediately ────────────────────────
-      # Runs as a parallel instance the moment the button is pressed — does not
-      # wait for the alert loop to reach a wait_for_trigger step.
-      # No bank match required — any press on this device dismisses the alarm.
-      - conditions:
-          - condition: template
-            value_template: >
-              {{ trigger.id == 'button_press'
-                 and trigger.event.data.suffix == suffix
-                 and is_state(timer_state_entity, 'alerting') }}
-        sequence:
-          - action: select.select_option
-            target:
-              entity_id: "{{ timer_state_entity }}"
-            data:
-              option: idle
-          - action: number.set_value
-            target:
-              entity_id: "{{ bank_value_entity }}"
-            data:
-              value: 0
-          - action: switch.turn_on
-            target:
-              entity_id: "{{ dim_switch_entity }}"
-          # Hold here so this press becomes stale (> 2 s since time_fired) before
-          # any other parallel button_press instance sees idle state and starts the timer.
-          - delay:
-              seconds: 3
 
       # ── Single press: start / pause / resume ───────────────────────────────
       - conditions:
@@ -279,6 +247,8 @@ action:
                           message: Timer resumed.
 
       # ── Long press: cancel and reset gauge ─────────────────────────────────
+      # Guarded against alerting state — during the alarm single press dismisses
+      # (handled by the firmware); long press is ignored so it can't corrupt state.
       - conditions:
           - condition: template
             value_template: >
@@ -288,6 +258,8 @@ action:
                  and trigger.event.data.press_type == 'long_press' }}
           - condition: template
             value_template: "{{ is_state(bank_entity_text_entity, 'timer') }}"
+          - condition: template
+            value_template: "{{ not is_state(timer_state_entity, 'alerting') }}"
         sequence:
           - action: text.set_value
             target:
@@ -345,29 +317,17 @@ action:
                   entity_id: "{{ bank_value_entity }}"
                 data:
                   value: 0
-              - action: switch.turn_on
-                target:
-                  entity_id: "{{ dim_switch_entity }}"
 
-              # Switch back to the timer bank so the flash is visible
+              # Switch back to the timer bank so the alarm is visible
               - action: number.set_value
                 target:
                   entity_id: "number.{{ suffix }}_active_bank"
                 data:
                   value: "{{ bank }}"
 
-              # Set state to 'alerting' — keeps the integration from treating gauge
-              # flashes as knob turns, and lets the parallel dismiss branch intercept
-              # any button press immediately without waiting for the loop.
-              - action: select.select_option
-                target:
-                  entity_id: "{{ timer_state_entity }}"
-                data:
-                  option: alerting
-
-              # Optional one-off TTS announcement before the alert loop.
-              # The 3 s pause uses wait_for_trigger so a press during the announcement
-              # is also caught — no fixed sleep with a dead listener.
+              # Optional one-off TTS announcement before the alarm begins.
+              # The 3 s delay lets the announcement finish before the firmware
+              # takes over the speaker with the alarm sound.
               - if:
                   - condition: template
                     value_template: "{{ tts_entity | length > 0 and finish_message | length > 0 }}"
@@ -378,126 +338,21 @@ action:
                     data:
                       media_player_entity_id: "{{ media_player }}"
                       message: "{{ finish_message }}"
-                  - wait_for_trigger:
-                      - trigger: event
-                        event_type: pivot_button_press
-                        event_data:
-                          suffix: "{{ suffix }}"
-                    timeout:
+                  - delay:
                       seconds: 3
-                    continue_on_timeout: true
 
-              # Alert loop — flashes gauge and plays sound until state leaves 'alerting'
-              # or 10 repeats are exhausted.
-              #
-              # mode: parallel means a button press creates a NEW instance that runs
-              # the dismiss branch immediately — it does not wait for this loop to reach
-              # a wait_for_trigger step. The loop tracks state (not a local variable) so
-              # it exits as soon as the dismiss instance sets state to 'idle'.
-              #
-              # wait_for_trigger is kept at each flash step for timing and as a secondary
-              # catch; the state condition after each one provides an early exit so the
-              # LEDs stop within one flash step of the dismiss.
-              - repeat:
-                  until: "{{ not is_state(timer_state_entity, 'alerting') or repeat.index >= 10 }}"
-                  sequence:
-                    # Play finish sound
-                    - action: media_player.play_media
-                      target:
-                        entity_id: "{{ media_player }}"
-                      data:
-                        media_content_id: "{{ finish_sound }}"
-                        media_content_type: music
-                    # Exit early if dismissed during sound playback
-                    - condition: template
-                      value_template: "{{ is_state(timer_state_entity, 'alerting') }}"
-                    # Flash 1 — on (750 ms)
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 100
-                    - wait_for_trigger:
-                        - trigger: event
-                          event_type: pivot_button_press
-                          event_data:
-                            suffix: "{{ suffix }}"
-                      timeout:
-                        milliseconds: 750
-                      continue_on_timeout: true
-                    - condition: template
-                      value_template: "{{ is_state(timer_state_entity, 'alerting') }}"
-                    # Flash 1 — off (400 ms)
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 0
-                    - wait_for_trigger:
-                        - trigger: event
-                          event_type: pivot_button_press
-                          event_data:
-                            suffix: "{{ suffix }}"
-                      timeout:
-                        milliseconds: 400
-                      continue_on_timeout: true
-                    - condition: template
-                      value_template: "{{ is_state(timer_state_entity, 'alerting') }}"
-                    # Flash 2 — on (750 ms)
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 100
-                    - wait_for_trigger:
-                        - trigger: event
-                          event_type: pivot_button_press
-                          event_data:
-                            suffix: "{{ suffix }}"
-                      timeout:
-                        milliseconds: 750
-                      continue_on_timeout: true
-                    - condition: template
-                      value_template: "{{ is_state(timer_state_entity, 'alerting') }}"
-                    # Flash 2 — off (400 ms)
-                    - action: number.set_value
-                      target:
-                        entity_id: "{{ bank_value_entity }}"
-                      data:
-                        value: 0
-                    - wait_for_trigger:
-                        - trigger: event
-                          event_type: pivot_button_press
-                          event_data:
-                            suffix: "{{ suffix }}"
-                      timeout:
-                        milliseconds: 400
-                      continue_on_timeout: true
-                    - condition: template
-                      value_template: "{{ is_state(timer_state_entity, 'alerting') }}"
-                    # Quiet window — 4 s between flash cycles
-                    - wait_for_trigger:
-                        - trigger: event
-                          event_type: pivot_button_press
-                          event_data:
-                            suffix: "{{ suffix }}"
-                      timeout:
-                        seconds: 4
-                      continue_on_timeout: true
-
-              # Final cleanup — runs when the loop exits, whether dismissed or exhausted.
-              # If dismissed, state is already 'idle' (set by the parallel dismiss branch).
-              # If exhausted (10 iterations), set idle here.
-              - action: number.set_value
-                target:
-                  entity_id: "{{ bank_value_entity }}"
-                data:
-                  value: 0
+              # Hand off to firmware — setting timer_state to 'alerting' causes
+              # the firmware (v0.0.11+) to turn on timer_ringing, which plays the
+              # built-in alarm sound, pulses the LED ring, and enables the "stop"
+              # wake word.  A single press on the device turns off timer_ringing;
+              # the firmware then calls back to HA to set timer_state to 'idle'
+              # and turn on dim_when_idle.  No HA automation involvement needed
+              # for the alarm cycle — it is entirely handled in firmware.
               - action: select.select_option
                 target:
                   entity_id: "{{ timer_state_entity }}"
                 data:
-                  option: idle
+                  option: alerting
 
             else:
               # ── Still running — update gauge ──────────────────────────────
@@ -548,11 +403,5 @@ action:
                       {{ m }} minute timer. Press to start.
                     {% endif %}
 
-# parallel mode is essential for reliable alert dismissal. In queued mode the
-# alert loop holds the queue and a button_press instance cannot run until the
-# loop reaches a wait_for_trigger step — so a press during media_player.play_media
-# or any other service call goes unhandled. In parallel mode the button_press
-# dismiss instance runs immediately, sets state to 'idle', and the alert loop
-# sees the state change at its next condition check.
-mode: parallel
-max: 5
+mode: queued
+max: 10
