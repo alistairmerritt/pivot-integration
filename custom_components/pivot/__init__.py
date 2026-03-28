@@ -1432,9 +1432,9 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
         "mode": "single",
     }
 
-    pivot_auto_path = hass.config.path("pivot", f"pivot_{automation_key}.yaml")
+    pivot_auto_path = hass.config.path("pivot", f"{automation_key}.yaml")
     automations_path = hass.config.path("automations.yaml")
-    include_line = f"- !include pivot/pivot_{automation_key}.yaml"
+    include_line = f"- !include pivot/{automation_key}.yaml"
 
     def _write_automation():
         import shutil
@@ -1456,7 +1456,7 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
         #    for this key (flat-path or otherwise), then append the correct new line.
         #    Running this on every write makes it self-healing — broken or duplicate
         #    entries from prior versions are corrected automatically.
-        marker = f"pivot_{automation_key}.yaml"
+        marker = f"{automation_key}.yaml"  # matches current and all legacy double-prefix names
         if os.path.exists(automations_path):
             with open(automations_path, "r") as f:
                 lines = f.readlines()
@@ -1474,11 +1474,14 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
                 f.write(f"# Auto-added by Pivot integration — do not edit\n")
                 f.write(f"{include_line}\n")
 
-        # 4. Remove old flat-path file last — automations.yaml is already correct
-        old_auto_path = hass.config.path(f"pivot_{automation_key}.yaml")
-        if os.path.exists(old_auto_path):
-            os.remove(old_auto_path)
-            _LOGGER.info("Pivot: removed old flat-path file %s", old_auto_path)
+        # 4. Remove legacy files last — automations.yaml is already correct
+        for old_path in [
+            hass.config.path("pivot", f"pivot_{automation_key}.yaml"),  # old double-prefix subdir
+            hass.config.path(f"pivot_{automation_key}.yaml"),            # old double-prefix flat
+        ]:
+            if os.path.exists(old_path):
+                os.remove(old_path)
+                _LOGGER.info("Pivot: removed legacy file %s", old_path)
 
     await hass.async_add_executor_job(_write_automation)
 
@@ -1493,12 +1496,16 @@ async def _remove_announcements_automation(hass: HomeAssistant, entry: ConfigEnt
     """Remove Pivot automation file and its include line from automations.yaml."""
     suffix = entry.data[CONF_DEVICE_SUFFIX]
     automation_key = f"pivot_{suffix}_announcements"
-    pivot_auto_path = hass.config.path("pivot", f"pivot_{automation_key}.yaml")
+    pivot_auto_path = hass.config.path("pivot", f"{automation_key}.yaml")
     automations_path = hass.config.path("automations.yaml")
 
     def _remove_automation():
-        # Delete our owned file (check both new subdir and old flat path)
-        for path in [pivot_auto_path, hass.config.path(f"pivot_{automation_key}.yaml")]:
+        # Delete our owned file — check all known paths (current + legacy names)
+        for path in [
+            pivot_auto_path,
+            hass.config.path("pivot", f"pivot_{automation_key}.yaml"),  # old double-prefix subdir
+            hass.config.path(f"pivot_{automation_key}.yaml"),            # old double-prefix flat
+        ]:
             if os.path.exists(path):
                 os.remove(path)
         # Remove the include line from automations.yaml
@@ -1506,7 +1513,7 @@ async def _remove_announcements_automation(hass: HomeAssistant, entry: ConfigEnt
             return False
         with open(automations_path, "r") as f:
             lines = f.readlines()
-        include_marker = f"pivot_{automation_key}.yaml"
+        include_marker = f"{automation_key}.yaml"
         new_lines = [l for l in lines if include_marker not in l and "Auto-added by Pivot" not in l]
         if len(new_lines) == len(lines):
             return False
