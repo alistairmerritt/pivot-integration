@@ -1139,7 +1139,7 @@ async def _write_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) -> 
     include_line = f"{script_key}: !include pivot/pivot_{script_key}.yaml"
 
     def _write():
-        import shutil, datetime
+        import shutil
 
         # 1. Validate our content before writing
         test_output = _yaml.dump(script_body, Dumper=_PivotDumper, default_flow_style=False, allow_unicode=True)
@@ -1149,39 +1149,38 @@ async def _write_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) -> 
             _LOGGER.error("Pivot: generated script YAML is invalid, aborting write: %s", e)
             return
 
-        # 2. Migration: if old flat-path file exists, remove it and its include line
-        old_pivot_path = hass.config.path(f"pivot_{script_key}.yaml")
-        if os.path.exists(old_pivot_path):
-            os.remove(old_pivot_path)
-            if os.path.exists(scripts_path):
-                with open(scripts_path, "r") as f:
-                    lines = f.readlines()
-                old_marker = f"pivot_{script_key}.yaml"
-                new_lines = [l for l in lines if old_marker not in l and "Auto-added by Pivot" not in l]
-                if len(new_lines) != len(lines):
-                    with open(scripts_path, "w") as f:
-                        f.writelines(new_lines)
-            _LOGGER.info("Pivot: migrated %s from flat config to pivot/ subdir", script_key)
-
-        # 3. Write our own file (Pivot fully owns this — safe to overwrite)
+        # 2. Write new file first — scripts.yaml is not touched until the file exists
         os.makedirs(os.path.dirname(pivot_script_path), exist_ok=True)
         with open(pivot_script_path, "w") as f:
             f.write(test_output)
 
-        # 4. Add include line to scripts.yaml only if not already present
-        existing_text = ""
+        # 3. Rewrite scripts.yaml atomically: strip all stale/duplicate Pivot lines
+        #    for this key (flat-path or otherwise), then append the correct new line.
+        #    Running this on every write makes it self-healing — broken or duplicate
+        #    entries from prior versions are corrected automatically.
+        marker = f"pivot_{script_key}.yaml"
         if os.path.exists(scripts_path):
             with open(scripts_path, "r") as f:
-                existing_text = f.read()
-        if include_line not in existing_text:
-            # Back up scripts.yaml before touching it
-            if os.path.exists(scripts_path):
-                backup_path = scripts_path + ".pivot_backup"
+                lines = f.readlines()
+            clean_lines = [l for l in lines if marker not in l and "Auto-added by Pivot" not in l]
+            clean_lines.append(f"\n# Auto-added by Pivot integration — do not edit\n")
+            clean_lines.append(f"{include_line}\n")
+            backup_path = scripts_path + ".pivot_backup"
+            if not os.path.exists(backup_path):
                 shutil.copy2(scripts_path, backup_path)
                 _LOGGER.info("Pivot: backed up scripts.yaml to %s", backup_path)
-            with open(scripts_path, "a") as f:
-                f.write(f"\n# Auto-added by Pivot integration — do not edit\n")
+            with open(scripts_path, "w") as f:
+                f.writelines(clean_lines)
+        else:
+            with open(scripts_path, "w") as f:
+                f.write(f"# Auto-added by Pivot integration — do not edit\n")
                 f.write(f"{include_line}\n")
+
+        # 4. Remove old flat-path file last — scripts.yaml is already correct
+        old_pivot_path = hass.config.path(f"pivot_{script_key}.yaml")
+        if os.path.exists(old_pivot_path):
+            os.remove(old_pivot_path)
+            _LOGGER.info("Pivot: removed old flat-path file %s", old_pivot_path)
 
     await hass.async_add_executor_job(_write)
 
@@ -1448,39 +1447,38 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
             _LOGGER.error("Pivot: generated automation YAML is invalid, aborting write: %s", e)
             return
 
-        # 2. Migration: if old flat-path file exists, remove it and its include line
-        old_auto_path = hass.config.path(f"pivot_{automation_key}.yaml")
-        if os.path.exists(old_auto_path):
-            os.remove(old_auto_path)
-            if os.path.exists(automations_path):
-                with open(automations_path, "r") as f:
-                    lines = f.readlines()
-                old_marker = f"pivot_{automation_key}.yaml"
-                new_lines = [l for l in lines if old_marker not in l and "Auto-added by Pivot" not in l]
-                if len(new_lines) != len(lines):
-                    with open(automations_path, "w") as f:
-                        f.writelines(new_lines)
-            _LOGGER.info("Pivot: migrated %s from flat config to pivot/ subdir", automation_key)
-
-        # 3. Write our own file (Pivot fully owns this — safe to overwrite)
+        # 2. Write new file first — automations.yaml is not touched until the file exists
         os.makedirs(os.path.dirname(pivot_auto_path), exist_ok=True)
         with open(pivot_auto_path, "w") as f:
             f.write(test_output)
 
-        # 4. Append include line to automations.yaml only if not already present
-        existing_text = ""
+        # 3. Rewrite automations.yaml atomically: strip all stale/duplicate Pivot lines
+        #    for this key (flat-path or otherwise), then append the correct new line.
+        #    Running this on every write makes it self-healing — broken or duplicate
+        #    entries from prior versions are corrected automatically.
+        marker = f"pivot_{automation_key}.yaml"
         if os.path.exists(automations_path):
             with open(automations_path, "r") as f:
-                existing_text = f.read()
-        if include_line not in existing_text:
-            # Back up automations.yaml before touching it
-            if os.path.exists(automations_path):
-                backup_path = automations_path + ".pivot_backup"
+                lines = f.readlines()
+            clean_lines = [l for l in lines if marker not in l and "Auto-added by Pivot" not in l]
+            clean_lines.append(f"\n# Auto-added by Pivot integration — do not edit\n")
+            clean_lines.append(f"{include_line}\n")
+            backup_path = automations_path + ".pivot_backup"
+            if not os.path.exists(backup_path):
                 shutil.copy2(automations_path, backup_path)
                 _LOGGER.info("Pivot: backed up automations.yaml to %s", backup_path)
-            with open(automations_path, "a") as f:
-                f.write("\n# Auto-added by Pivot integration — do not edit\n")
+            with open(automations_path, "w") as f:
+                f.writelines(clean_lines)
+        else:
+            with open(automations_path, "w") as f:
+                f.write(f"# Auto-added by Pivot integration — do not edit\n")
                 f.write(f"{include_line}\n")
+
+        # 4. Remove old flat-path file last — automations.yaml is already correct
+        old_auto_path = hass.config.path(f"pivot_{automation_key}.yaml")
+        if os.path.exists(old_auto_path):
+            os.remove(old_auto_path)
+            _LOGGER.info("Pivot: removed old flat-path file %s", old_auto_path)
 
     await hass.async_add_executor_job(_write_automation)
 
