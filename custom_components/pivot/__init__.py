@@ -1134,9 +1134,9 @@ async def _write_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) -> 
         ],
     }
 
-    pivot_script_path = hass.config.path(f"pivot_{script_key}.yaml")
+    pivot_script_path = hass.config.path("pivot", f"pivot_{script_key}.yaml")
     scripts_path = hass.config.path("scripts.yaml")
-    include_line = f"{script_key}: !include pivot_{script_key}.yaml"
+    include_line = f"{script_key}: !include pivot/pivot_{script_key}.yaml"
 
     def _write():
         import shutil, datetime
@@ -1149,11 +1149,26 @@ async def _write_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) -> 
             _LOGGER.error("Pivot: generated script YAML is invalid, aborting write: %s", e)
             return
 
-        # 2. Write our own file (Pivot fully owns this — safe to overwrite)
+        # 2. Migration: if old flat-path file exists, remove it and its include line
+        old_pivot_path = hass.config.path(f"pivot_{script_key}.yaml")
+        if os.path.exists(old_pivot_path):
+            os.remove(old_pivot_path)
+            if os.path.exists(scripts_path):
+                with open(scripts_path, "r") as f:
+                    lines = f.readlines()
+                old_marker = f"pivot_{script_key}.yaml"
+                new_lines = [l for l in lines if old_marker not in l and "Auto-added by Pivot" not in l]
+                if len(new_lines) != len(lines):
+                    with open(scripts_path, "w") as f:
+                        f.writelines(new_lines)
+            _LOGGER.info("Pivot: migrated %s from flat config to pivot/ subdir", script_key)
+
+        # 3. Write our own file (Pivot fully owns this — safe to overwrite)
+        os.makedirs(os.path.dirname(pivot_script_path), exist_ok=True)
         with open(pivot_script_path, "w") as f:
             f.write(test_output)
 
-        # 3. Add include line to scripts.yaml only if not already present
+        # 4. Add include line to scripts.yaml only if not already present
         existing_text = ""
         if os.path.exists(scripts_path):
             with open(scripts_path, "r") as f:
@@ -1161,7 +1176,7 @@ async def _write_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) -> 
         if include_line not in existing_text:
             # Back up scripts.yaml before touching it
             if os.path.exists(scripts_path):
-                backup_path = scripts_path + f".pivot_backup"
+                backup_path = scripts_path + ".pivot_backup"
                 shutil.copy2(scripts_path, backup_path)
                 _LOGGER.info("Pivot: backed up scripts.yaml to %s", backup_path)
             with open(scripts_path, "a") as f:
@@ -1181,12 +1196,13 @@ async def _remove_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) ->
     """Remove Pivot script files and reload."""
     suffix = entry.data[CONF_DEVICE_SUFFIX]
     script_key = f"{suffix}_bank_toggle"
-    pivot_script_path = hass.config.path(f"pivot_{script_key}.yaml")
+    pivot_script_path = hass.config.path("pivot", f"pivot_{script_key}.yaml")
 
     def _remove():
-        # Delete our owned file
-        if os.path.exists(pivot_script_path):
-            os.remove(pivot_script_path)
+        # Delete our owned file (check both new subdir and old flat path)
+        for path in [pivot_script_path, hass.config.path(f"pivot_{script_key}.yaml")]:
+            if os.path.exists(path):
+                os.remove(path)
         # Remove the include line from scripts.yaml
         scripts_path = hass.config.path("scripts.yaml")
         if not os.path.exists(scripts_path):
@@ -1417,9 +1433,9 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
         "mode": "single",
     }
 
-    pivot_auto_path = hass.config.path(f"pivot_{automation_key}.yaml")
+    pivot_auto_path = hass.config.path("pivot", f"pivot_{automation_key}.yaml")
     automations_path = hass.config.path("automations.yaml")
-    include_line = f"- !include pivot_{automation_key}.yaml"
+    include_line = f"- !include pivot/pivot_{automation_key}.yaml"
 
     def _write_automation():
         import shutil
@@ -1432,11 +1448,26 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
             _LOGGER.error("Pivot: generated automation YAML is invalid, aborting write: %s", e)
             return
 
-        # 2. Write our own file (Pivot fully owns this — safe to overwrite)
+        # 2. Migration: if old flat-path file exists, remove it and its include line
+        old_auto_path = hass.config.path(f"pivot_{automation_key}.yaml")
+        if os.path.exists(old_auto_path):
+            os.remove(old_auto_path)
+            if os.path.exists(automations_path):
+                with open(automations_path, "r") as f:
+                    lines = f.readlines()
+                old_marker = f"pivot_{automation_key}.yaml"
+                new_lines = [l for l in lines if old_marker not in l and "Auto-added by Pivot" not in l]
+                if len(new_lines) != len(lines):
+                    with open(automations_path, "w") as f:
+                        f.writelines(new_lines)
+            _LOGGER.info("Pivot: migrated %s from flat config to pivot/ subdir", automation_key)
+
+        # 3. Write our own file (Pivot fully owns this — safe to overwrite)
+        os.makedirs(os.path.dirname(pivot_auto_path), exist_ok=True)
         with open(pivot_auto_path, "w") as f:
             f.write(test_output)
 
-        # 3. Append include line to automations.yaml only if not already present
+        # 4. Append include line to automations.yaml only if not already present
         existing_text = ""
         if os.path.exists(automations_path):
             with open(automations_path, "r") as f:
@@ -1444,7 +1475,7 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
         if include_line not in existing_text:
             # Back up automations.yaml before touching it
             if os.path.exists(automations_path):
-                backup_path = automations_path + f".pivot_backup"
+                backup_path = automations_path + ".pivot_backup"
                 shutil.copy2(automations_path, backup_path)
                 _LOGGER.info("Pivot: backed up automations.yaml to %s", backup_path)
             with open(automations_path, "a") as f:
@@ -1464,13 +1495,14 @@ async def _remove_announcements_automation(hass: HomeAssistant, entry: ConfigEnt
     """Remove Pivot automation file and its include line from automations.yaml."""
     suffix = entry.data[CONF_DEVICE_SUFFIX]
     automation_key = f"pivot_{suffix}_announcements"
-    pivot_auto_path = hass.config.path(f"pivot_{automation_key}.yaml")
+    pivot_auto_path = hass.config.path("pivot", f"pivot_{automation_key}.yaml")
     automations_path = hass.config.path("automations.yaml")
 
     def _remove_automation():
-        # Delete our owned file
-        if os.path.exists(pivot_auto_path):
-            os.remove(pivot_auto_path)
+        # Delete our owned file (check both new subdir and old flat path)
+        for path in [pivot_auto_path, hass.config.path(f"pivot_{automation_key}.yaml")]:
+            if os.path.exists(path):
+                os.remove(path)
         # Remove the include line from automations.yaml
         if not os.path.exists(automations_path):
             return False
