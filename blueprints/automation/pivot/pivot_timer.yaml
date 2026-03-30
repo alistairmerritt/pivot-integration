@@ -283,11 +283,6 @@ action:
           - action: switch.turn_on
             target:
               entity_id: "{{ dim_switch_entity }}"
-          - action: number.set_value
-            target:
-              entity_id: "number.{{ suffix }}_active_bank"
-            data:
-              value: 1
 
       # ── Every 5 seconds: sync gauge and detect finish ──────────────────────
       - conditions:
@@ -327,16 +322,12 @@ action:
                 data:
                   value: 0
 
-              # Reset to bank 1. The alarm LED is driven by timer_ringing in
-              # firmware (v0.0.11+) and is independent of the active bank, so
-              # there is no need to stay on the timer bank during the alarm.
-              # Resetting here prevents the next button press accidentally
-              # restarting the timer after dismissal.
+              # Switch back to the timer bank so the alarm is visible
               - action: number.set_value
                 target:
                   entity_id: "number.{{ suffix }}_active_bank"
                 data:
-                  value: 1
+                  value: "{{ bank }}"
 
               # Optional one-off TTS announcement before the alarm begins.
               # The 3 s delay lets the announcement finish before the firmware
@@ -404,11 +395,6 @@ action:
           - action: switch.turn_on
             target:
               entity_id: "{{ dim_switch_entity }}"
-          - action: number.set_value
-            target:
-              entity_id: "number.{{ suffix }}_active_bank"
-            data:
-              value: 1
 
       # ── Duration changed (knob turned while idle): announce selected time ──
       - conditions:
