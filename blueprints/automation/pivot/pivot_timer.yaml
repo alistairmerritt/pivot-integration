@@ -21,6 +21,8 @@ blueprint:
        for the timer — the knob is automatically disabled and the timer blueprint takes over.
     3. Set your desired duration on `number.{suffix}_timer_duration` (default: 25 minutes).
     4. Ensure the device has been reflashed to firmware v0.0.11 or later.
+    5. To enable dashboard alarm dismissal, reflash to v0.0.13 or later and set the **Timer Ringing Switch** input
+       to the `timer_ringing` switch entity for your device (found under ESPHome in Devices & Services).
   domain: automation
   input:
     suffix:
@@ -64,12 +66,25 @@ blueprint:
       selector:
         text:
 
+    timer_ringing_entity:
+      name: Timer Ringing Switch (optional)
+      description: >
+        The `timer_ringing` switch entity for your Pivot device (e.g. `switch.home_assistant_voice_lounge_timer_ringing`).
+        Required only if you want a dashboard button to dismiss the alarm. Leave blank to use button/wake-word dismiss only.
+        Find it under Settings → Devices & Services → ESPHome → your device.
+        Requires firmware v0.0.13 or later.
+      default: ""
+      selector:
+        entity:
+          domain: switch
+
 variables:
   suffix: !input suffix
   bank: !input bank
   media_player: !input media_player
   tts_entity: !input tts_entity
   finish_message: !input finish_message
+  timer_ringing_entity: !input timer_ringing_entity
   duration_entity: "number.{{ suffix }}_timer_duration"
   timer_state_entity: "select.{{ suffix }}_timer_state"
   timer_end_entity: "text.{{ suffix }}_timer_end"
@@ -253,11 +268,13 @@ action:
               # on_turn_off handles the HA state reset back to idle)
               - conditions:
                   - condition: template
-                    value_template: "{{ is_state(timer_state_entity, 'alerting') }}"
+                    value_template: >
+                      {{ is_state(timer_state_entity, 'alerting')
+                         and timer_ringing_entity | length > 0 }}
                 sequence:
                   - action: switch.turn_off
                     target:
-                      entity_id: "switch.{{ suffix }}_timer_ringing"
+                      entity_id: "{{ timer_ringing_entity }}"
 
       # ── Long press: cancel and reset gauge ─────────────────────────────────
       # No bank check — long press is a deliberate, 1-second hold.  It cancels
