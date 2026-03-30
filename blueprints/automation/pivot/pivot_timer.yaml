@@ -93,9 +93,22 @@ variables:
   dim_switch_entity: "switch.{{ suffix }}_dim_when_idle"
 
 trigger:
+  # Single press on the configured bank — start / pause / resume / dismiss
   - trigger: event
     event_type: pivot_button_press
-    id: button_press
+    event_data:
+      suffix: !input suffix
+      bank: !input bank
+      press_type: single_press
+    id: single_press
+
+  # Long press on any bank on this device — cancel
+  - trigger: event
+    event_type: pivot_button_press
+    event_data:
+      suffix: !input suffix
+      press_type: long_press
+    id: long_press
 
   - trigger: time_pattern
     seconds: "/30"
@@ -103,28 +116,25 @@ trigger:
 
   - trigger: event
     event_type: pivot_timer_duration_set
+    event_data:
+      suffix: !input suffix
     id: duration_changed
 
 action:
   # Discard stale single_press events — prevents queued presses from a
   # previous state firing back-to-back and causing spurious transitions.
-  # Long press is exempt: it can arrive slightly late and must not be discarded.
+  # Long press, gauge_sync, and duration_changed are exempt.
   - condition: template
     value_template: >
-      {{ trigger.id != 'button_press' or
-         trigger.event.data.press_type == 'long_press' or
+      {{ trigger.id != 'single_press' or
          (now() - trigger.event.time_fired).total_seconds() < 2 }}
 
   - choose:
 
-      # ── Single press: start / pause / resume ───────────────────────────────
+      # ── Single press: start / pause / resume / dismiss ─────────────────────
       - conditions:
           - condition: template
-            value_template: >
-              {{ trigger.id == 'button_press'
-                 and trigger.event.data.suffix == suffix
-                 and trigger.event.data.bank | int == bank | int
-                 and trigger.event.data.press_type == 'single_press' }}
+            value_template: "{{ trigger.id == 'single_press' }}"
           - condition: template
             value_template: "{{ is_state(bank_entity_text_entity, 'timer') }}"
         sequence:
@@ -283,10 +293,7 @@ action:
       # the alarm, single press dismisses natively in firmware.
       - conditions:
           - condition: template
-            value_template: >
-              {{ trigger.id == 'button_press'
-                 and trigger.event.data.suffix == suffix
-                 and trigger.event.data.press_type == 'long_press' }}
+            value_template: "{{ trigger.id == 'long_press' }}"
           - condition: template
             value_template: >
               {{ is_state(timer_state_entity, 'running')
@@ -311,7 +318,7 @@ action:
             target:
               entity_id: "{{ dim_switch_entity }}"
 
-      # ── Every 5 seconds: sync gauge and detect finish ──────────────────────
+      # ── Every 30 seconds: sync gauge and detect finish ─────────────────────
       - conditions:
           - condition: template
             value_template: >
@@ -428,7 +435,6 @@ action:
           - condition: template
             value_template: >
               {{ trigger.id == 'duration_changed'
-                 and trigger.event.data.suffix == suffix
                  and is_state(timer_state_entity, 'idle') }}
         sequence:
           # Debounce — wait for the knob to stop turning
