@@ -327,12 +327,16 @@ action:
                 data:
                   value: 0
 
-              # Switch back to the timer bank so the alarm is visible
+              # Reset to bank 1. The alarm LED is driven by timer_ringing in
+              # firmware (v0.0.11+) and is independent of the active bank, so
+              # there is no need to stay on the timer bank during the alarm.
+              # Resetting here prevents the next button press accidentally
+              # restarting the timer after dismissal.
               - action: number.set_value
                 target:
                   entity_id: "number.{{ suffix }}_active_bank"
                 data:
-                  value: "{{ bank }}"
+                  value: 1
 
               # Optional one-off TTS announcement before the alarm begins.
               # The 3 s delay lets the announcement finish before the firmware
@@ -362,21 +366,6 @@ action:
                   entity_id: "{{ timer_state_entity }}"
                 data:
                   option: alerting
-              # Wait for the alarm to be dismissed (button, stop wake word,
-              # dashboard, or 15-minute auto-timeout), then return the device
-              # to bank 1 so the timer bank is not accidentally re-triggered
-              # by the next button press.
-              - wait_for_trigger:
-                  - trigger: template
-                    value_template: "{{ is_state(timer_state_entity, 'idle') }}"
-                timeout:
-                  minutes: 20
-                continue_on_timeout: true
-              - action: number.set_value
-                target:
-                  entity_id: "number.{{ suffix }}_active_bank"
-                data:
-                  value: 1
 
             else:
               # ── Still running — update gauge ──────────────────────────────
