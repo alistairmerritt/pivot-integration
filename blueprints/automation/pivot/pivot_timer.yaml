@@ -367,9 +367,8 @@ action:
               # to bank 1 so the timer bank is not accidentally re-triggered
               # by the next button press.
               - wait_for_trigger:
-                  - trigger: state
-                    entity_id: "{{ timer_state_entity }}"
-                    to: idle
+                  - trigger: template
+                    value_template: "{{ is_state(timer_state_entity, 'idle') }}"
                 timeout:
                   minutes: 20
                 continue_on_timeout: true
