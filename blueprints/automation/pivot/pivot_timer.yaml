@@ -283,6 +283,11 @@ action:
           - action: switch.turn_on
             target:
               entity_id: "{{ dim_switch_entity }}"
+          - action: number.set_value
+            target:
+              entity_id: "number.{{ suffix }}_active_bank"
+            data:
+              value: 1
 
       # ── Every 5 seconds: sync gauge and detect finish ──────────────────────
       - conditions:
@@ -357,6 +362,22 @@ action:
                   entity_id: "{{ timer_state_entity }}"
                 data:
                   option: alerting
+              # Wait for the alarm to be dismissed (button, stop wake word,
+              # dashboard, or 15-minute auto-timeout), then return the device
+              # to bank 1 so the timer bank is not accidentally re-triggered
+              # by the next button press.
+              - wait_for_trigger:
+                  - trigger: state
+                    entity_id: "{{ timer_state_entity }}"
+                    to: idle
+                timeout:
+                  minutes: 20
+                continue_on_timeout: true
+              - action: number.set_value
+                target:
+                  entity_id: "number.{{ suffix }}_active_bank"
+                data:
+                  value: 1
 
             else:
               # ── Still running — update gauge ──────────────────────────────
@@ -395,6 +416,11 @@ action:
           - action: switch.turn_on
             target:
               entity_id: "{{ dim_switch_entity }}"
+          - action: number.set_value
+            target:
+              entity_id: "number.{{ suffix }}_active_bank"
+            data:
+              value: 1
 
       # ── Duration changed (knob turned while idle): announce selected time ──
       - conditions:
