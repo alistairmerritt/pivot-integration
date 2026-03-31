@@ -44,7 +44,7 @@ blueprint:
       name: Pivot Device
       description: >
         Select your Pivot VPE device. The media player, timer ringing switch, and button event entity
-        are all derived automatically from this device — no separate entity picking required.
+        are all derived automatically from this device.
       selector:
         device:
           integration: esphome
