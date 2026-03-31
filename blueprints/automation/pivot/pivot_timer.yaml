@@ -43,11 +43,22 @@ blueprint:
     pivot_device:
       name: Pivot Device
       description: >
-        Select your Pivot VPE device. The media player, timer ringing switch, and button event entity
-        are all derived automatically from this device.
+        Select your Pivot VPE device. The media player and timer ringing switch
+        are derived automatically from this device.
       selector:
         device:
           integration: esphome
+
+    button_event_entity:
+      name: Button Event Entity
+      description: >
+        The button press event entity for your Pivot device. Used to detect long press (cancel timer)
+        directly from the device. Select the entity named `button_press` or similar under your device —
+        filtered to event entities on the selected Pivot device.
+      selector:
+        entity:
+          domain: event
+          device_id: !input pivot_device
 
     tts_entity:
       name: TTS Entity (optional)
@@ -104,11 +115,11 @@ trigger:
     id: single_press
 
   # Long press on any bank on this device — cancel
-  - trigger: event
-    event_type: pivot_button_press
-    event_data:
-      suffix: !input suffix
-      press_type: long_press
+  # Uses a direct state trigger on the button event entity rather than
+  # pivot_button_press, which requires the Pivot integration to have a
+  # correctly configured device_id (not always the case).
+  - trigger: state
+    entity_id: !input button_event_entity
     id: long_press
 
   - trigger: time_pattern
@@ -294,7 +305,10 @@ action:
       # the alarm, single press dismisses natively in firmware.
       - conditions:
           - condition: template
-            value_template: "{{ trigger.id == 'long_press' }}"
+            value_template: >
+              {{ trigger.id == 'long_press'
+                 and trigger.to_state is not none
+                 and trigger.to_state.attributes.get('event_type') == 'long_press' }}
           - condition: template
             value_template: >
               {{ is_state(timer_state_entity, 'running')
