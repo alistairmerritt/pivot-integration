@@ -331,6 +331,16 @@ action:
           - action: switch.turn_on
             target:
               entity_id: "{{ dim_switch_entity }}"
+          - if:
+              - condition: template
+                value_template: "{{ tts_entity | length > 0 }}"
+            then:
+              - action: tts.speak
+                target:
+                  entity_id: "{{ tts_entity }}"
+                data:
+                  media_player_entity_id: "{{ media_player }}"
+                  message: Timer cancelled.
 
       # ── Every 30 seconds: sync gauge and detect finish ─────────────────────
       - conditions:
