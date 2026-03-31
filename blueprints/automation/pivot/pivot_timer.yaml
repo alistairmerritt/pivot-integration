@@ -52,7 +52,7 @@ blueprint:
     button_event_entity:
       name: Button Event Entity
       description: >
-        The button press event entity for your Pivot device (e.g. `event.spare_vpe_button_press`).
+        The button press event entity for your Pivot device (e.g. `event.home_assistant_voice_study`).
         Used to detect long press (cancel timer) directly from the device.
         Find it under Settings → Devices & Services → ESPHome → your device.
       selector:
