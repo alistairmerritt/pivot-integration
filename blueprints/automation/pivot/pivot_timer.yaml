@@ -113,12 +113,22 @@ trigger:
       press_type: single_press
     id: single_press
 
-  # Long press on any bank on this device — cancel
+  # Long press on any bank on this device — cancel (physical button)
   # Uses a direct state trigger on the button event entity rather than
   # pivot_button_press, which requires the Pivot integration to have a
   # correctly configured device_id (not always the case).
   - trigger: state
     entity_id: !input button_event_entity
+    id: long_press
+
+  # Long press via dashboard — fires pivot_button_press with press_type: long_press
+  - trigger: event
+    event_type: pivot_button_press
+    event_data:
+      suffix: !input suffix
+      bank: !input bank
+      press_type: long_press
+      bank_entity: timer
     id: long_press
 
   - trigger: time_pattern
@@ -306,8 +316,8 @@ action:
           - condition: template
             value_template: >
               {{ trigger.id == 'long_press'
-                 and trigger.to_state is not none
-                 and trigger.to_state.attributes.get('event_type') == 'long_press' }}
+                 and (trigger.to_state is none
+                      or trigger.to_state.attributes.get('event_type') == 'long_press') }}
           - condition: template
             value_template: >
               {{ is_state(timer_state_entity, 'running')
