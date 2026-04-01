@@ -5,7 +5,7 @@ blueprint:
 
     - **Single press** on the selected bank — start if idle, pause if running, resume if paused. A 3-second cooldown after dismiss or cancel prevents accidental restarts.
     - **Long press** on the timer bank — cancel and reset the timer. Long press on other banks is ignored, leaving it free for custom actions.
-    - **Gauge** — updates every 5 seconds while the timer is running, draining from 100% to 0% as time runs out.
+    - **Gauge** — updates every 30 seconds while the timer is running, draining from 100% to 0% as time runs out.
     - **Finish** — the device plays the built-in alarm sound and pulses the LED ring (same as the stock VPE timer).
       Single press or "stop" wake word dismisses the alarm. Firing `pivot_button_press` (e.g. from a dashboard button) also dismisses it. Optionally speaks a TTS message once before the alarm begins.
     - **TTS** — if a TTS entity is configured, spoken announcements play on start (*"25 minute timer started"*),
@@ -147,15 +147,6 @@ trigger:
       bank_entity: timer
     id: long_press
 
-  # Fast sync — runs every 5 seconds but only does real work (gauge update,
-  # finish detection) when timer_state is 'running'.  When idle or paused the
-  # choose conditions fall through immediately with no service calls.
-  - trigger: time_pattern
-    seconds: "/5"
-    id: gauge_sync_fast
-
-  # Slow sync — runs every 30 seconds.  Used only for the paused auto-cancel
-  # check (15-minute threshold); 30-second resolution is more than sufficient.
   - trigger: time_pattern
     seconds: "/30"
     id: gauge_sync
@@ -378,14 +369,11 @@ action:
                   media_player_entity_id: "{{ media_player }}"
                   message: Timer cancelled.
 
-      # ── Every 5 seconds: sync gauge and detect finish ──────────────────────
-      # Fires on gauge_sync_fast (/5s) for responsiveness, and also on the
-      # slow gauge_sync (/30s) as a fallback (e.g. on HA startup if the fast
-      # trigger hasn't fired yet).
+      # ── Every 30 seconds: sync gauge and detect finish ─────────────────────
       - conditions:
           - condition: template
             value_template: >
-              {{ trigger.id in ['gauge_sync_fast', 'gauge_sync']
+              {{ trigger.id == 'gauge_sync'
                  and is_state(timer_state_entity, 'running') }}
         sequence:
           - variables:
@@ -487,7 +475,6 @@ action:
       # Prevents the timer from being stuck in paused state indefinitely.
       # Uses the last_changed timestamp of the timer_state entity — which updates
       # when the state becomes 'paused' — to measure how long the pause has lasted.
-      # The slow gauge_sync trigger is sufficient given the 15-minute threshold.
       - conditions:
           - condition: template
             value_template: >
