@@ -68,6 +68,16 @@ blueprint:
           domain: tts
           multiple: false
 
+    silent_mode:
+      name: Silent Mode (optional)
+      description: >
+        When enabled, the timer alarm suppresses the alarm sound. The LED ring
+        still pulses and the "stop" wake word still works — only the sound is
+        silenced. Requires firmware v0.0.14 or later.
+      default: false
+      selector:
+        boolean:
+
     finish_message:
       name: Finish Message (optional)
       description: Message spoken by TTS once when the timer finishes (before the alarm begins).
@@ -81,6 +91,7 @@ variables:
   pivot_device: !input pivot_device
   tts_entity: !input tts_entity
   finish_message: !input finish_message
+  silent_mode: !input silent_mode
   # Derive device entities automatically — works regardless of ESPHome device name
   media_player: >
     {{ device_entities(pivot_device)
@@ -90,6 +101,11 @@ variables:
     {{ device_entities(pivot_device)
        | select('match', 'switch\\..*')
        | select('search', 'timer_ringing')
+       | list | first | default('') }}
+  timer_silent_mode_entity: >
+    {{ device_entities(pivot_device)
+       | select('match', 'switch\\..*')
+       | select('search', 'timer_silent_mode')
        | list | first | default('') }}
   button_event_entity: >
     {{ device_entities(pivot_device)
@@ -413,13 +429,33 @@ action:
                   - delay:
                       seconds: 3
 
+              # Silent mode — set or clear the firmware switch before alerting.
+              # Requires firmware v0.0.14+; silently skipped on older firmware
+              # (entity won't be found so the action targets nothing).
+              - if:
+                  - condition: template
+                    value_template: "{{ timer_silent_mode_entity | length > 0 }}"
+                then:
+                  - choose:
+                      - conditions:
+                          - condition: template
+                            value_template: "{{ silent_mode }}"
+                        sequence:
+                          - action: switch.turn_on
+                            target:
+                              entity_id: "{{ timer_silent_mode_entity }}"
+                    default:
+                      - action: switch.turn_off
+                        target:
+                          entity_id: "{{ timer_silent_mode_entity }}"
+
               # Hand off to firmware — setting timer_state to 'alerting' causes
-              # the firmware (v0.0.11+) to turn on timer_ringing, which plays the
-              # built-in alarm sound, pulses the LED ring, and enables the "stop"
-              # wake word.  A single press on the device turns off timer_ringing;
-              # the firmware then calls back to HA to set timer_state to 'idle'
-              # and turn on dim_when_idle.  No HA automation involvement needed
-              # for the alarm cycle — it is entirely handled in firmware.
+              # the firmware (v0.0.11+) to turn on timer_ringing, which pulses
+              # the LED ring and enables the "stop" wake word.  When silent_mode
+              # is off (default), the alarm sound also plays.  A single press on
+              # the device turns off timer_ringing; the firmware then calls back
+              # to HA to set timer_state to 'idle' and turn on dim_when_idle.
+              # No HA automation involvement needed for the alarm cycle.
               - action: select.select_option
                 target:
                   entity_id: "{{ timer_state_entity }}"
