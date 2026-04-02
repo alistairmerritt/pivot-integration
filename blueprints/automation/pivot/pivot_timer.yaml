@@ -173,7 +173,7 @@ action:
           - condition: template
             value_template: "{{ trigger.id == 'single_press' }}"
           - condition: template
-            value_template: "{{ is_state(bank_entity_text_entity, 'timer') }}"
+            value_template: "{{ states(bank_entity_text_entity) | lower == 'timer' }}"
         sequence:
           - choose:
               # Idle → start (3-second cooldown after dismiss or cancel)
