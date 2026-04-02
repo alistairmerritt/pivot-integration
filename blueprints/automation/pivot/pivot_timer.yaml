@@ -517,14 +517,12 @@ action:
             timeout:
               milliseconds: 150
             continue_on_timeout: true
-          # Only announce if nothing changed in that window (knob settled)
-          # AND this instance's duration still matches the current entity —
-          # guards against queued instances announcing stale values when the
-          # knob is turned slowly (gaps > 600 ms between clicks).
+          # Only announce if nothing changed in that window (knob settled).
+          # Duration is read from the original trigger event data rather than
+          # the entity state, avoiding a race where the entity hasn't updated
+          # in HA yet when the 150ms debounce expires.
           - condition: template
-            value_template: >
-              {{ wait.trigger is none
-                 and states(duration_entity) | int == trigger.event.data.duration | int }}
+            value_template: "{{ wait.trigger is none }}"
           - if:
               - condition: template
                 value_template: "{{ tts_entity | length > 0 }}"
@@ -535,7 +533,7 @@ action:
                 data:
                   media_player_entity_id: "{{ media_player }}"
                   message: >
-                    {% set mins = states(duration_entity) | int(25) %}
+                    {% set mins = trigger.event.data.duration | int(25) %}
                     {% set h = mins // 60 %}
                     {% set m = mins % 60 %}
                     {% if h > 0 and m > 0 %}
