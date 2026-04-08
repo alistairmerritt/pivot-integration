@@ -72,6 +72,17 @@ blueprint:
         entity:
           domain: tts
 
+    mute_entity:
+      name: Mute Announcements Switch (optional)
+      description: >
+        The Mute Announcements switch for your Pivot device,
+        e.g. `switch.ha_voice_1_mute_announcements`. When on, all spoken
+        announcements are suppressed. Leave blank if not using mute.
+      default: ""
+      selector:
+        entity:
+          domain: switch
+
 variables:
   tts_engine: !input tts_engine
   media_player_entity: !input media_player_entity
@@ -80,6 +91,7 @@ variables:
   bank_1_entity: !input bank_1_entity
   bank_2_entity: !input bank_2_entity
   bank_3_entity: !input bank_3_entity
+  mute_entity: !input mute_entity
 
 trigger:
   - trigger: state
@@ -94,6 +106,8 @@ condition:
   - condition: state
     entity_id: !input announce_bank_switch
     state: "on"
+  - condition: template
+    value_template: "{{ mute_entity == '' or not is_state(mute_entity, 'on') }}"
 
 action:
   - choose:

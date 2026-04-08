@@ -1,0 +1,174 @@
+blueprint:
+  name: "Pivot — Announce Value"
+  description: >
+    Announces the current value of a bank's assigned entity via TTS after the
+    knob settles (~600 ms debounce). Supports climate, cover, light,
+    media_player, fan, and number entities.
+
+    Per-bank "Announce Value" switches (created by the integration) must be
+    turned on for each bank you want announcements on. The optional Mute
+    Announcements switch suppresses all TTS when on.
+
+    Requires the Pivot integration and Home Assistant Cloud (Nabu Casa) or
+    another TTS provider.
+  domain: automation
+  input:
+    suffix:
+      name: Device Suffix
+      description: >
+        The ESPHome device name slug for your Pivot device,
+        e.g. `home_assistant_voice_092e7d`. Used to resolve bank entity and
+        announce-value switch IDs automatically.
+      selector:
+        text:
+
+    bank_0_value:
+      name: Bank 1 Value (number)
+      description: "The Bank 1 Value number entity, e.g. `number.home_assistant_voice_092e7d_bank_0_value`."
+      selector:
+        entity:
+          domain: number
+
+    bank_1_value:
+      name: Bank 2 Value (number)
+      description: "The Bank 2 Value number entity, e.g. `number.home_assistant_voice_092e7d_bank_1_value`."
+      selector:
+        entity:
+          domain: number
+
+    bank_2_value:
+      name: Bank 3 Value (number)
+      description: "The Bank 3 Value number entity, e.g. `number.home_assistant_voice_092e7d_bank_2_value`."
+      selector:
+        entity:
+          domain: number
+
+    bank_3_value:
+      name: Bank 4 Value (number)
+      description: "The Bank 4 Value number entity, e.g. `number.home_assistant_voice_092e7d_bank_3_value`."
+      selector:
+        entity:
+          domain: number
+
+    media_player_entity:
+      name: Media Player
+      description: "The VPE media player to speak through."
+      selector:
+        entity:
+          domain: media_player
+
+    tts_engine:
+      name: TTS Engine
+      description: "TTS service entity to use, e.g. `tts.home_assistant_cloud`."
+      default: tts.home_assistant_cloud
+      selector:
+        entity:
+          domain: tts
+
+    mute_entity:
+      name: Mute Announcements Switch (optional)
+      description: >
+        The Mute Announcements switch for your Pivot device,
+        e.g. `switch.home_assistant_voice_092e7d_mute_announcements`. When on,
+        all spoken announcements are suppressed. Leave blank if not using mute.
+      default: ""
+      selector:
+        entity:
+          domain: switch
+
+variables:
+  suffix: !input suffix
+  bank_0_value: !input bank_0_value
+  bank_1_value: !input bank_1_value
+  bank_2_value: !input bank_2_value
+  bank_3_value: !input bank_3_value
+  tts_engine: !input tts_engine
+  media_player_entity: !input media_player_entity
+  mute_entity: !input mute_entity
+
+trigger:
+  - trigger: state
+    entity_id: !input bank_0_value
+    id: bank_0
+  - trigger: state
+    entity_id: !input bank_1_value
+    id: bank_1
+  - trigger: state
+    entity_id: !input bank_2_value
+    id: bank_2
+  - trigger: state
+    entity_id: !input bank_3_value
+    id: bank_3
+
+condition:
+  # Ignore unavailable/unknown state changes (e.g. HA restart)
+  - condition: template
+    value_template: >
+      {{ trigger.to_state.state not in ['unavailable', 'unknown', 'none'] }}
+
+action:
+  - variables:
+      # Map trigger ID to bank index (0-based)
+      bank_idx: >
+        {% set map = {'bank_0': 0, 'bank_1': 1, 'bank_2': 2, 'bank_3': 3} %}
+        {{ map[trigger.id] }}
+      announce_switch: "switch.{{ suffix }}_bank_{{ bank_idx }}_announce_value"
+      bank_entity_id: "text.{{ suffix }}_bank_{{ bank_idx }}_entity"
+
+  # Exit early if announce switch is off or no entity assigned
+  - condition: template
+    value_template: >
+      {{ is_state(announce_switch, 'on')
+         and states(bank_entity_id) | length > 0 }}
+
+  # Debounce — wait for knob to settle before announcing
+  - delay:
+      milliseconds: 600
+
+  - variables:
+      target_entity: "{{ states(bank_entity_id) }}"
+      domain: "{{ target_entity.split('.')[0] if '.' in target_entity else '' }}"
+      bank_value: "{{ trigger.to_state.state | float(0) | round(0) | int }}"
+
+  # Post-debounce checks: mute off, entity available, domain supported
+  - condition: template
+    value_template: >
+      {{ (mute_entity == '' or not is_state(mute_entity, 'on'))
+         and domain in ['climate', 'cover', 'light', 'media_player', 'fan', 'number']
+         and states(target_entity) not in ['unavailable', 'unknown'] }}
+
+  - variables:
+      tts_message: >
+        {% if domain == 'climate' %}
+          {% set temp = state_attr(target_entity, 'temperature') %}
+          {% if temp is not none %}
+            Temperature {{ temp | round(0) | int }} degrees.
+          {% else %}
+            Temperature unavailable.
+          {% endif %}
+        {% elif domain == 'cover' %}
+          {% set pos = state_attr(target_entity, 'current_position') %}
+          {% if pos is not none %}
+            {{ pos | round(0) | int }} percent open.
+          {% else %}
+            Position unavailable.
+          {% endif %}
+        {% elif domain == 'light' %}
+          Brightness {{ bank_value }} percent.
+        {% elif domain == 'media_player' %}
+          Volume {{ bank_value }} percent.
+        {% elif domain == 'fan' %}
+          Speed {{ bank_value }} percent.
+        {% elif domain == 'number' %}
+          {% set unit = state_attr(target_entity, 'unit_of_measurement') %}
+          Set to {{ states(target_entity) }}{% if unit %} {{ unit }}{% endif %}.
+        {% endif %}
+
+  - action: tts.speak
+    target:
+      entity_id: "{{ tts_engine }}"
+    data:
+      media_player_entity_id: "{{ media_player_entity }}"
+      message: "{{ tts_message }}"
+
+mode: restart

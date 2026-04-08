@@ -149,12 +149,21 @@ def get_switch_definitions(suffix: str, announcements_default: bool = True) -> l
             "key": "announcements",
             "unique_id": entity_unique_id(suffix, "announcements"),
             "entity_id": entity_id("switch", suffix, "announcements"),
-            "name": "Announcements",
+            "name": "System Announcements",
             "icon": "mdi:bullhorn",
             "initial": announcements_default,
         },
+        {
+            "platform": "switch",
+            "key": "mute_announcements",
+            "unique_id": entity_unique_id(suffix, "mute_announcements"),
+            "entity_id": entity_id("switch", suffix, "mute_announcements"),
+            "name": "Mute Announcements",
+            "icon": "mdi:volume-off",
+            "initial": False,
+        },
     ]
-    # Per-bank mirror light switches
+    # Per-bank mirror light and announce value switches
     for bank in range(NUM_BANKS):
         switches.append({
             "platform": "switch",
@@ -163,6 +172,16 @@ def get_switch_definitions(suffix: str, announcements_default: bool = True) -> l
             "entity_id": entity_id("switch", suffix, f"bank_{bank}_mirror_light"),
             "name": f"Bank {bank + 1} Mirror Light",
             "icon": "mdi:lightbulb-on",
+            "initial": False,
+        })
+    for bank in range(NUM_BANKS):
+        switches.append({
+            "platform": "switch",
+            "key": f"bank_{bank}_announce_value",
+            "unique_id": entity_unique_id(suffix, f"bank_{bank}_announce_value"),
+            "entity_id": entity_id("switch", suffix, f"bank_{bank}_announce_value"),
+            "name": f"Bank {bank + 1} Announce Value",
+            "icon": "mdi:volume-high",
             "initial": False,
         })
     return switches
