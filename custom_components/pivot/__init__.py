@@ -458,6 +458,16 @@ def _setup_bank_control_listener(
         if active_bank_idx != bank_idx:
             return
 
+        # Only respond to genuine device pushes (physical knob turns).
+        # Bank value changes from live-entity sync (_sync_value_from_entity) and
+        # bank-switch sync are issued as HA service calls, so their state change
+        # carries a non-None context.parent_id. Ignoring those prevents
+        # pivot_knob_turn from firing when an external source (e.g. a motion
+        # trigger turning on a light) causes a sync update, and also stops the
+        # value being needlessly re-applied to the entity a second time.
+        if new_state.context.parent_id is not None:
+            return
+
         # Look up assigned entity
         text_state = hass.states.get(f"text.{suffix}_bank_{bank_idx}_entity")
         if text_state is None or text_state.state in ("", "unknown", "unavailable"):
@@ -467,12 +477,7 @@ def _setup_bank_control_listener(
 
         # Timer bank: map knob value (0-100) to timer_duration when idle
         if bank_entity == "timer":
-            # Only respond to genuine device pushes (physical knob turns).
-            # Automation/blueprint service calls carry a non-None context.parent_id;
-            # skip those so the alert loop's gauge flashing and cancel resets
-            # don't trigger spurious duration announcements.
             if new_state.context.parent_id is not None:
-                return
             timer_state_id = f"select.{suffix}_timer_state"
             timer_st = hass.states.get(timer_state_id)
             if timer_st is None or timer_st.state != "idle":
