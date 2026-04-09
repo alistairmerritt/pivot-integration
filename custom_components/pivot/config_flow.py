@@ -234,7 +234,7 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_ANNOUNCEMENTS: user_input.get(CONF_ANNOUNCEMENTS, True),
                 CONF_TTS_ENTITY: user_input.get(CONF_TTS_ENTITY) or "",
                 CONF_MEDIA_PLAYER_ENTITY: user_input.get(CONF_MEDIA_PLAYER_ENTITY) or "",
-                CONF_MANAGEMENT_MODE: user_input.get(CONF_MANAGEMENT_MODE, MANAGEMENT_MANAGED),
+                CONF_MANAGEMENT_MODE: user_input.get(CONF_MANAGEMENT_MODE, MANAGEMENT_BLUEPRINTS),
             }
             return await self.async_step_banks_initial()
 
@@ -247,7 +247,6 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         mode_sel = selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=[
-                    selector.SelectOptionDict(value=MANAGEMENT_MANAGED, label="Automatic setup"),
                     selector.SelectOptionDict(value=MANAGEMENT_BLUEPRINTS, label="Blueprint setup"),
                     selector.SelectOptionDict(value=MANAGEMENT_NEITHER, label="Manual setup"),
                 ],
@@ -258,7 +257,7 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="options",
             data_schema=vol.Schema({
-                vol.Required(CONF_MANAGEMENT_MODE, default=MANAGEMENT_MANAGED): mode_sel,
+                vol.Required(CONF_MANAGEMENT_MODE, default=MANAGEMENT_BLUEPRINTS): mode_sel,
                 vol.Required(CONF_ANNOUNCEMENTS, default=True): bool,
                 vol.Optional(CONF_TTS_ENTITY): tts_sel,
                 vol.Optional(CONF_MEDIA_PLAYER_ENTITY): mp_sel,
@@ -303,7 +302,6 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
     """
     Options flow for Pivot:
       1. General settings (management mode + announcements)
-      1a. Warning step if switching away from Managed mode
       2. Bank entity assignment
     """
 
@@ -314,19 +312,20 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
         current_mode = (
             self.config_entry.options.get(CONF_MANAGEMENT_MODE)
             or self.config_entry.data.get(CONF_MANAGEMENT_MODE)
-            or MANAGEMENT_MANAGED
+            or MANAGEMENT_BLUEPRINTS
         )
+        # Treat legacy managed mode as blueprints
+        if current_mode == MANAGEMENT_MANAGED:
+            current_mode = MANAGEMENT_BLUEPRINTS
 
         if user_input is not None:
-            new_mode = user_input.get(CONF_MANAGEMENT_MODE, MANAGEMENT_MANAGED)
+            new_mode = user_input.get(CONF_MANAGEMENT_MODE, MANAGEMENT_BLUEPRINTS)
             self._pending = {
                 CONF_ANNOUNCEMENTS: user_input[CONF_ANNOUNCEMENTS],
                 CONF_TTS_ENTITY: user_input.get(CONF_TTS_ENTITY) or "",
                 CONF_MEDIA_PLAYER_ENTITY: user_input.get(CONF_MEDIA_PLAYER_ENTITY) or "",
                 CONF_MANAGEMENT_MODE: new_mode,
             }
-            if current_mode == MANAGEMENT_MANAGED and new_mode != MANAGEMENT_MANAGED:
-                return await self.async_step_mode_warning()
             return await self.async_step_banks()
 
         tts_sel = selector.EntitySelector(
@@ -338,7 +337,6 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
         mode_sel = selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=[
-                    selector.SelectOptionDict(value=MANAGEMENT_MANAGED, label="Automatic setup"),
                     selector.SelectOptionDict(value=MANAGEMENT_BLUEPRINTS, label="Blueprint setup"),
                     selector.SelectOptionDict(value=MANAGEMENT_NEITHER, label="Manual setup"),
                 ],
@@ -358,7 +356,7 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
         )
 
         schema_fields: dict = {
-            vol.Required(CONF_MANAGEMENT_MODE, default=current_mode): mode_sel,
+            vol.Required(CONF_MANAGEMENT_MODE, default=current_mode or MANAGEMENT_BLUEPRINTS): mode_sel,
             vol.Required(
                 CONF_ANNOUNCEMENTS,
                 default=self.config_entry.options.get(
@@ -379,22 +377,6 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(schema_fields),
-        )
-
-    async def async_step_mode_warning(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Warning: switching away from Managed mode will remove Pivot-managed files."""
-        if user_input is not None:
-            if not user_input.get("confirm_mode_change"):
-                self._pending[CONF_MANAGEMENT_MODE] = MANAGEMENT_MANAGED
-            return await self.async_step_banks()
-
-        return self.async_show_form(
-            step_id="mode_warning",
-            data_schema=vol.Schema({
-                vol.Required("confirm_mode_change", default=False): bool,
-            }),
         )
 
     async def async_step_banks(

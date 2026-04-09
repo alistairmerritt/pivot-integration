@@ -14,6 +14,8 @@ CONF_SATELLITE_ENTITY = "satellite_entity"  # assist_satellite entity
 CONF_MANAGEMENT_MODE = "management_mode"  # "managed" | "blueprints" | "neither"
 
 # Management mode values
+# MANAGEMENT_MANAGED is kept only for migration detection — it is no longer
+# presented as an option in the UI and will never be written to new entries.
 MANAGEMENT_MANAGED = "managed"
 MANAGEMENT_BLUEPRINTS = "blueprints"
 MANAGEMENT_NEITHER = "neither"

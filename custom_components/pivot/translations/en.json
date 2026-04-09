@@ -20,7 +20,7 @@
       },
       "options": {
         "title": "Settings",
-        "description": "Choose how Pivot handles the scripts and automations it may need.\n\n**Automatic setup:** Recommended. Pivot creates and manages the scripts and automations it needs for you. This is the easiest option and works out of the box with your assigned bank entities.\n\n**Blueprint setup:** Pivot adds blueprint files to your Home Assistant configuration. You then create the automations and script yourself from those blueprints in the Home Assistant UI.\n\n**Manual setup:** Pivot does not create any files for you. You create your own scripts and automations from scratch using Pivot's events and entities. Advanced users only.",
+        "description": "Choose how Pivot handles the scripts and automations it may need.\n\n**Blueprint setup:** Recommended. Pivot copies blueprint files into your Home Assistant configuration. You then create the automations and script yourself from those blueprints in the Home Assistant UI — a one-time setup.\n\n**Manual setup:** Pivot does not create any files for you. You create your own scripts and automations from scratch using Pivot's events and entities. Advanced users only.",
         "data": {
           "management_mode": "Setup mode",
           "announcements": "Speak bank and mode changes",
@@ -28,7 +28,6 @@
           "media_player_entity": "Speaker"
         },
         "data_description": {
-          "management_mode": "Please note: If you switch away from Automatic setup after setting it up initially, Pivot may remove any scripts and automations it created for you.\n\nChoosing Automatic setup does not lock you into Pivot's built-in automations. You can still create your own custom automations at any time.",
           "announcements": "When turned on, Pivot says the current bank and mode when you switch banks or change control mode.",
           "tts_entity": "Choose the service that creates the spoken announcement.",
           "media_player_entity": "Choose the media player that will play the announcement."
@@ -63,7 +62,7 @@
     "step": {
       "init": {
         "title": "Settings",
-        "description": "Choose how Pivot handles the scripts and automations it may need.\n\n**Automatic setup:** Recommended. Pivot creates and manages the scripts and automations it needs for you. This is the easiest option and works out of the box with your assigned bank entities.\n\n**Blueprint setup:** Pivot adds blueprint files to your Home Assistant configuration. You then create the automations and script yourself from those blueprints in the Home Assistant UI.\n\n**Manual setup:** Pivot does not create any files for you. You create your own scripts and automations from scratch using Pivot's events and entities. Advanced users only.",
+        "description": "Choose how Pivot handles the scripts and automations it may need.\n\n**Blueprint setup:** Recommended. Pivot copies blueprint files into your Home Assistant configuration. You then create the automations and script yourself from those blueprints in the Home Assistant UI — a one-time setup.\n\n**Manual setup:** Pivot does not create any files for you. You create your own scripts and automations from scratch using Pivot's events and entities. Advanced users only.",
         "data": {
           "management_mode": "Setup mode",
           "announcements": "Speak bank and mode changes",
@@ -71,17 +70,9 @@
           "media_player_entity": "Speaker"
         },
         "data_description": {
-          "management_mode": "Please note: If you switch away from Automatic setup after setting it up initially, Pivot may remove any scripts and automations it created for you.\n\nChoosing Automatic setup does not lock you into Pivot's built-in automations. You can still create your own custom automations at any time.",
           "announcements": "When turned on, Pivot says the current bank and mode when you switch banks or change control mode.",
           "tts_entity": "Choose the service that creates the spoken announcement.",
           "media_player_entity": "Choose the media player that will play the announcement."
-        }
-      },
-      "mode_warning": {
-        "title": "Changing setup mode",
-        "description": "You are switching away from **Automatic** setup.\n\nPivot will remove the scripts and automations it created for you. You will need to set up your own, or use blueprints.\n\nTick the box below to confirm.",
-        "data": {
-          "confirm_mode_change": "I understand \u2014 remove Pivot-managed files and switch mode"
         }
       },
       "banks": {
@@ -94,7 +85,7 @@
           "bank_3_entity": "Bank 4"
         },
         "data_description": {
-          "bank_3_entity": "Bank assignments are stored as entities and work in all setup modes. However, the knob and button will only control your assigned entities automatically if you are using Automatic or Blueprint setup. In Manual setup, you will need to build your own automations using Pivot's fired events to act on these assignments."
+          "bank_3_entity": "Bank assignments are stored as entities and work in all setup modes. However, the knob and button will only control your assigned entities automatically if you are using Blueprint setup. In Manual setup, you will need to build your own automations using Pivot's fired events to act on these assignments."
         }
       }
     }

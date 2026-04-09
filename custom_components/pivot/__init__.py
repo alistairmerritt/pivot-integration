@@ -3,16 +3,15 @@
 Handles all runtime logic for Pivot devices:
 - Bank control: listens for bank value changes and applies them to assigned entities
 - Bank sync: when active bank changes, reads entity state and syncs value back
-- Bank toggle: registers a service script.{suffix}_bank_toggle that the firmware
-  calls on button press to toggle/activate the active bank's assigned entity
+- Bank toggle: fires pivot_button_press events; the bank-toggle script is provided
+  as a blueprint that users install once via the HA UI
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
-
-import yaml as _yaml
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -31,23 +30,113 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["number", "switch", "text", "binary_sensor", "light", "select"]
 
 
-def _make_pivot_dumper():
-    """YAML dumper that single-quotes strings containing Jinja2 templates."""
-    import yaml
-
-    class PivotDumper(yaml.Dumper):
-        pass
-
-    def _str_representer(dumper, data):
-        if any(c in data for c in ("{{", "}}", "\n", ": ")):
-            return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="'")
-        return dumper.represent_scalar("tag:yaml.org,2002:str", data)
-
-    PivotDumper.add_representer(str, _str_representer)
-    return PivotDumper
+# ---------------------------------------------------------------------------
+# Locks used by the migration cleanup path (removing legacy managed-mode files).
+# Kept to serialise concurrent reads of scripts.yaml / automations.yaml during
+# upgrade from an older install that used Automatic (managed) mode.
+# ---------------------------------------------------------------------------
+_SCRIPTS_YAML_LOCK = asyncio.Lock()
+_AUTOMATIONS_YAML_LOCK = asyncio.Lock()
 
 
-_PivotDumper = _make_pivot_dumper()
+def _strip_script_lines(lines: list[str], script_key: str) -> list[str]:
+    """Strip all Pivot content for script_key from a scripts.yaml line list.
+
+    Removes both the current ``!include`` style entries AND old inline-YAML
+    blocks that older integration versions (or HA's automation editor) may
+    have written directly into scripts.yaml.
+    """
+    marker = f"pivot_{script_key}.yaml"
+    result: list[str] = []
+    in_inline_block = False
+
+    for line in lines:
+        # Always drop include-style references and the auto-added comment.
+        if marker in line or "Auto-added by Pivot" in line:
+            in_inline_block = False
+            continue
+
+        # Detect the start of an old inline script block:
+        #   ha_voice_grey_bank_toggle:
+        # or
+        #   ha_voice_grey_bank_toggle: {inline mapping}
+        is_root_key = (
+            not line[:1].isspace()
+            and not line.startswith("#")
+            and line.strip()
+        )
+        if is_root_key and line.startswith(f"{script_key}:"):
+            rest = line[len(script_key) + 1 :]
+            if not rest.strip() or rest[:1] in (" ", "\t"):
+                in_inline_block = True
+                continue
+
+        if in_inline_block:
+            # Stay in the block while lines are indented, blank, or comments.
+            if line.strip() and not line[:1].isspace() and not line.startswith("#"):
+                # Hit the next root-level key — end of the Pivot block.
+                in_inline_block = False
+                # Fall through: this line belongs to the next entry.
+            else:
+                continue  # Still inside the old Pivot block; skip it.
+
+        result.append(line)
+
+    return result
+
+
+def _strip_automation_lines(lines: list[str], automation_key: str) -> list[str]:
+    """Strip all Pivot content for automation_key from an automations.yaml line list.
+
+    Removes both the current ``- !include`` style entry AND old inline
+    automation blocks (written directly into automations.yaml by prior
+    integration versions or when HA's automation editor "flattened" an
+    include into the main file).
+    """
+    marker = f"{automation_key}.yaml"
+
+    # First pass: find line-index ranges belonging to old inline Pivot automations.
+    # A top-level list item in automations.yaml starts with "- " at column 0.
+    skip_indices: set[int] = set()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        # Top-level list item (not a nested "  - ..." item).
+        if line.startswith("- ") and not line[:2] == "-\t":
+            block_start = i
+            # Scan the block for our automation id.
+            j = i + 1
+            found = False
+            while j < len(lines):
+                next_line = lines[j]
+                # End of this list item: next top-level "- " entry.
+                if next_line.startswith("- ") and not next_line[:2] == "-\t":
+                    break
+                if (
+                    f"id: {automation_key}" in next_line
+                    or f'id: "{automation_key}"' in next_line
+                    or f"id: '{automation_key}'" in next_line
+                ):
+                    found = True
+                    break
+                j += 1
+
+            if found:
+                # Mark every line in this block for removal.
+                block_end = j  # exclusive; j is either EOF or the next "- " item
+                for k in range(block_start, block_end):
+                    skip_indices.add(k)
+                i = block_end
+                continue
+        i += 1
+
+    return [
+        line
+        for idx, line in enumerate(lines)
+        if idx not in skip_indices
+        and marker not in line
+        and "Auto-added by Pivot" not in line
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -102,20 +191,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     management_mode = (
         entry.options.get(CONF_MANAGEMENT_MODE)
         or entry.data.get(CONF_MANAGEMENT_MODE)
-        or MANAGEMENT_MANAGED
+        or MANAGEMENT_BLUEPRINTS
     )
 
-    # Detect if mode has changed from managed to something else — clean up files
-    prev_mode = hass.data[DOMAIN].get(entry.entry_id + "_prev_mode")
-    if prev_mode == MANAGEMENT_MANAGED and management_mode != MANAGEMENT_MANAGED:
-        _LOGGER.info("Pivot: mode changed from managed to %s — cleaning up files", management_mode)
-        await _cleanup_managed_files(hass, entry)
-    hass.data[DOMAIN][entry.entry_id + "_prev_mode"] = management_mode
-
+    # Migration: Automatic (managed) mode has been removed.
+    # Clean up any files it wrote and treat the device as Blueprint mode.
     if management_mode == MANAGEMENT_MANAGED:
-        await _write_bank_toggle_script(hass, entry)
-        await _write_announcements_automation(hass, entry)
-    elif management_mode == MANAGEMENT_BLUEPRINTS:
+        _LOGGER.info(
+            "Pivot: '%s' was configured in Automatic mode (removed) — "
+            "cleaning up managed files and switching to Blueprint mode",
+            friendly_name,
+        )
+        await _cleanup_managed_files(hass, entry)
+        management_mode = MANAGEMENT_BLUEPRINTS
+
+    if management_mode == MANAGEMENT_BLUEPRINTS:
         await _install_blueprints(hass, entry)
     # MANAGEMENT_NEITHER: do nothing
 
@@ -134,17 +224,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Cancel mirror listeners
     for unsub in hass.data[DOMAIN].pop(entry.entry_id + "_unsub_mirror", []):
         unsub()
-
-    management_mode = (
-        entry.options.get(CONF_MANAGEMENT_MODE)
-        or entry.data.get(CONF_MANAGEMENT_MODE)
-        or MANAGEMENT_MANAGED
-    )
-
-    if management_mode == MANAGEMENT_MANAGED:
-        await _remove_bank_toggle_script(hass, entry)
-        await _remove_announcements_automation(hass, entry)
-    # Blueprints and Neither: nothing to clean up on unload
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
@@ -480,10 +559,24 @@ def _setup_bank_control_listener(
             return
 
         text_state = hass.states.get(f"text.{suffix}_bank_{bank_idx}_entity")
-        if text_state is None or text_state.state in ("", "unknown", "unavailable"):
-            return
+        bank_entity = (
+            text_state.state
+            if text_state and text_state.state not in ("", "unknown", "unavailable")
+            else ""
+        )
 
-        bank_entity = text_state.state
+        # Fire event for blueprints and user automations
+        hass.bus.async_fire(
+            "pivot_bank_changed",
+            {
+                "suffix": suffix,
+                "bank": bank_idx + 1,  # 1-based
+                "bank_entity": bank_entity,
+            },
+        )
+
+        if not bank_entity:
+            return
 
         # Timer bank: sync current duration to gauge when idle (running handled by gauge_sync)
         if bank_entity == "timer":
@@ -963,12 +1056,14 @@ async def _install_blueprints(hass: HomeAssistant, entry: ConfigEntry) -> None:
             {
                 "title": f"Pivot — {friendly_name} Blueprints Installed",
                 "message": (
-                    f"Pivot blueprints have been installed for **{friendly_name}**. "
-                    f"You now need to create automations from them:\n\n"
-                    f"- **Pivot — Bank Control**: go to [Automations](/config/automation/dashboard) → Create → Search blueprints → Pivot\n"
-                    f"- **Pivot — Announce Bank**: same as above (optional, for spoken announcements)\n"
-                    f"- **Pivot — Bank Toggle**: go to [Scripts](/config/script/dashboard) → Create → Search blueprints → Pivot\n\n"
-                    f"The bank toggle script **must** be given the ID `{suffix}_bank_toggle` when saving."
+                    f"Pivot blueprints have been installed for **{friendly_name}**.\n\n"
+                    f"**Required — do this first:**\n"
+                    f"Go to [Scripts](/config/script/dashboard) → Create → Search blueprints → **Pivot — Bank Toggle**.\n"
+                    f"Set the Device Suffix to `{suffix}` and **set the script ID to `{suffix}_bank_toggle`** before saving.\n\n"
+                    f"**Optional:**\n"
+                    f"Go to [Automations](/config/automation/dashboard) → Create → Search blueprints → **Pivot — Announce** "
+                    f"to enable spoken announcements (requires a TTS provider).\n\n"
+                    f"If you use the timer feature, also create an automation from **Pivot — Timer**."
                 ),
                 "notification_id": f"pivot_blueprints_{suffix}",
             },
@@ -983,195 +1078,6 @@ async def _cleanup_managed_files(hass: HomeAssistant, entry: ConfigEntry) -> Non
     _LOGGER.info("Pivot: cleaned up managed files for %s", entry.data[CONF_DEVICE_SUFFIX])
 
 
-# ---------------------------------------------------------------------------
-# Bank toggle script file management
-#
-# The firmware calls script.turn_on with entity_id: script.{suffix}_bank_toggle
-# HA's script.turn_on requires a real script entity in the script registry.
-# We create it by writing to scripts.yaml in the HA config directory,
-# then calling script.reload to pick it up.
-# ---------------------------------------------------------------------------
-
-
-async def _write_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Write the bank toggle script to a Pivot-owned file and register it in scripts.yaml."""
-    suffix = entry.data[CONF_DEVICE_SUFFIX]
-    friendly_name = entry.data[CONF_FRIENDLY_NAME]
-    script_key = f"{suffix}_bank_toggle"
-
-    # The script body — written to its own file that Pivot fully owns
-    script_body = {
-        "alias": f"Pivot \u2014 {friendly_name} Bank Toggle",
-        "description": "Auto-created by Pivot integration. Do not edit manually.",
-        "icon": "mdi:knob",
-        "mode": "single",
-        "sequence": [
-            {
-                "variables": {
-                    "bank": f"{{{{ (states('number.{suffix}_active_bank') | int(1)) - 1 }}}}",
-                    "bank_entity": (
-                        f"{{% set entities = ["
-                        f"states('text.{suffix}_bank_0_entity'),"
-                        f"states('text.{suffix}_bank_1_entity'),"
-                        f"states('text.{suffix}_bank_2_entity'),"
-                        f"states('text.{suffix}_bank_3_entity')"
-                        f"] %}}"
-                        f"{{{{ entities[bank] }}}}"
-                    ),
-                    "domain": "{{ bank_entity.split('.')[0] if '.' in bank_entity else '' }}",
-                }
-            },
-            # pivot_button_press for single_press is now fired by the
-            # _setup_bank_toggle_listener in __init__.py, which also deduplicates
-            # against the firmware button_press_event path on reflashed devices.
-            {
-                "condition": "template",
-                "value_template": "{{ bank_entity | length > 0 and bank_entity not in ('unknown', 'unavailable', '', 'timer') }}",
-            },
-            {
-                "choose": [
-                    {
-                        "conditions": "{{ domain == 'scene' }}",
-                        "sequence": [{"action": "scene.turn_on", "target": {"entity_id": "{{ bank_entity }}"}}],
-                    },
-                    {
-                        "conditions": "{{ domain == 'script' }}",
-                        "sequence": [{"action": "script.turn_on", "target": {"entity_id": "{{ bank_entity }}"}}],
-                    },
-                    {
-                        "conditions": "{{ domain == 'media_player' }}",
-                        "sequence": [{"action": "media_player.media_play_pause", "target": {"entity_id": "{{ bank_entity }}"}}],
-                    },
-                    {
-                        "conditions": "{{ domain == 'cover' }}",
-                        "sequence": [{"action": "cover.toggle", "target": {"entity_id": "{{ bank_entity }}"}}],
-                    },
-                    {
-                        "conditions": "{{ domain in ('input_number', 'number') }}",
-                        "sequence": [],
-                    },
-                ],
-                "default": [
-                    {"action": "homeassistant.toggle", "target": {"entity_id": "{{ bank_entity }}"}}
-                ],
-            },
-            {"delay": {"milliseconds": 150}},
-            {
-                "variables": {
-                    "new_brightness": f"{{{{ state_attr(bank_entity, 'brightness') }}}}",
-                    "new_volume": f"{{{{ state_attr(bank_entity, 'volume_level') }}}}",
-                    "new_percentage": f"{{{{ state_attr(bank_entity, 'percentage') }}}}",
-                    "new_temperature": f"{{{{ state_attr(bank_entity, 'temperature') }}}}",
-                    "new_position": f"{{{{ state_attr(bank_entity, 'current_position') }}}}",
-                    "entity_state": f"{{{{ states(bank_entity) }}}}",
-                    "number_min": f"{{{{ state_attr(bank_entity, 'min') | float(0) }}}}",
-                    "number_max": f"{{{{ state_attr(bank_entity, 'max') | float(100) }}}}",
-                }
-            },
-            {
-                "choose": [
-                    {
-                        "conditions": "{{ domain == 'light' }}",
-                        "sequence": [{
-                            "action": "number.set_value",
-                            "target": {"entity_id": f"number.{suffix}_bank_{{{{ bank }}}}_value"},
-                            "data": {"value": "{{ (new_brightness | float(0) / 255 * 100) | round(0) | int if new_brightness not in (None, 'None') else 0 }}"},
-                        }],
-                    },
-                    {
-                        "conditions": "{{ domain == 'media_player' }}",
-                        "sequence": [{
-                            "action": "number.set_value",
-                            "target": {"entity_id": f"number.{suffix}_bank_{{{{ bank }}}}_value"},
-                            "data": {"value": "{{ (new_volume | float(0) * 100) | round(0) | int }}"},
-                        }],
-                    },
-                    {
-                        "conditions": "{{ domain == 'fan' }}",
-                        "sequence": [{
-                            "action": "number.set_value",
-                            "target": {"entity_id": f"number.{suffix}_bank_{{{{ bank }}}}_value"},
-                            "data": {"value": "{{ new_percentage | float(0) | round(0) | int }}"},
-                        }],
-                    },
-                    {
-                        "conditions": "{{ domain == 'cover' }}",
-                        "sequence": [{
-                            "action": "number.set_value",
-                            "target": {"entity_id": f"number.{suffix}_bank_{{{{ bank }}}}_value"},
-                            "data": {"value": "{{ new_position | float(0) | round(0) | int }}"},
-                        }],
-                    },
-                    {
-                        "conditions": "{{ domain in ('input_number', 'number') }}",
-                        "sequence": [{
-                            "action": "number.set_value",
-                            "target": {"entity_id": f"number.{suffix}_bank_{{{{ bank }}}}_value"},
-                            "data": {"value": "{{ (((entity_state | float(0)) - number_min) / ((number_max - number_min) if number_max != number_min else 1) * 100) | round(0) | int }}"},
-                        }],
-                    },
-                ],
-            },
-        ],
-    }
-
-    pivot_script_path = hass.config.path("pivot", f"pivot_{script_key}.yaml")
-    scripts_path = hass.config.path("scripts.yaml")
-    include_line = f"{script_key}: !include pivot/pivot_{script_key}.yaml"
-
-    def _write():
-        import shutil
-
-        # 1. Validate our content before writing
-        test_output = _yaml.dump(script_body, Dumper=_PivotDumper, default_flow_style=False, allow_unicode=True)
-        try:
-            _yaml.safe_load(test_output)
-        except Exception as e:
-            _LOGGER.error("Pivot: generated script YAML is invalid, aborting write: %s", e)
-            return
-
-        # 2. Write new file first — scripts.yaml is not touched until the file exists
-        os.makedirs(os.path.dirname(pivot_script_path), exist_ok=True)
-        with open(pivot_script_path, "w") as f:
-            f.write(test_output)
-
-        # 3. Rewrite scripts.yaml atomically: strip all stale/duplicate Pivot lines
-        #    for this key (flat-path or otherwise), then append the correct new line.
-        #    Running this on every write makes it self-healing — broken or duplicate
-        #    entries from prior versions are corrected automatically.
-        marker = f"pivot_{script_key}.yaml"
-        if os.path.exists(scripts_path):
-            with open(scripts_path, "r") as f:
-                lines = f.readlines()
-            clean_lines = [l for l in lines if marker not in l and "Auto-added by Pivot" not in l]
-            clean_lines.append(f"\n# Auto-added by Pivot integration — do not edit\n")
-            clean_lines.append(f"{include_line}\n")
-            backup_path = scripts_path + ".pivot_backup"
-            if not os.path.exists(backup_path):
-                shutil.copy2(scripts_path, backup_path)
-                _LOGGER.info("Pivot: backed up scripts.yaml to %s", backup_path)
-            with open(scripts_path, "w") as f:
-                f.writelines(clean_lines)
-        else:
-            with open(scripts_path, "w") as f:
-                f.write(f"# Auto-added by Pivot integration — do not edit\n")
-                f.write(f"{include_line}\n")
-
-        # 4. Remove old flat-path file last — scripts.yaml is already correct
-        old_pivot_path = hass.config.path(f"pivot_{script_key}.yaml")
-        if os.path.exists(old_pivot_path):
-            os.remove(old_pivot_path)
-            _LOGGER.info("Pivot: removed old flat-path file %s", old_pivot_path)
-
-    await hass.async_add_executor_job(_write)
-
-    try:
-        await hass.services.async_call("script", "reload", blocking=True)
-        _LOGGER.info("Pivot: created script.%s", script_key)
-    except Exception as e:
-        _LOGGER.warning("Pivot: could not reload scripts: %s", e)
-
-
 async def _remove_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Remove Pivot script files and reload."""
     suffix = entry.data[CONF_DEVICE_SUFFIX]
@@ -1183,19 +1089,19 @@ async def _remove_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) ->
         for path in [pivot_script_path, hass.config.path(f"pivot_{script_key}.yaml")]:
             if os.path.exists(path):
                 os.remove(path)
-        # Remove the include line from scripts.yaml
+        # Remove all Pivot content for this key from scripts.yaml
         scripts_path = hass.config.path("scripts.yaml")
         if not os.path.exists(scripts_path):
             return
         with open(scripts_path, "r") as f:
             lines = f.readlines()
-        include_marker = f"pivot_{script_key}.yaml"
-        new_lines = [l for l in lines if include_marker not in l and "Auto-added by Pivot" not in l]
+        new_lines = _strip_script_lines(lines, script_key)
         if len(new_lines) != len(lines):
             with open(scripts_path, "w") as f:
                 f.writelines(new_lines)
 
-    await hass.async_add_executor_job(_remove)
+    async with _SCRIPTS_YAML_LOCK:
+        await hass.async_add_executor_job(_remove)
 
     try:
         await hass.services.async_call("script", "reload", blocking=True)
@@ -1203,11 +1109,6 @@ async def _remove_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) ->
     except Exception as e:
         _LOGGER.warning("Pivot: could not reload scripts after removal: %s", e)
 
-
-
-# Written to automations.yaml if announcements is enabled and TTS/media player
-# are configured. Removed on unload or when announcements is disabled.
-# ---------------------------------------------------------------------------
 
 
 def _get_button_event_entity(hass: HomeAssistant, device_id: str) -> str | None:
@@ -1222,359 +1123,8 @@ def _get_button_event_entity(hass: HomeAssistant, device_id: str) -> str | None:
     return None
 
 
-async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Write the announcements automation to automations.yaml if configured."""
-    suffix = entry.data[CONF_DEVICE_SUFFIX]
-    friendly_name = entry.data[CONF_FRIENDLY_NAME]
-    device_id = entry.data.get(CONF_DEVICE_ID)
-
-    # Get tts/media player from options first, then data
-    tts_entity = (
-        entry.options.get(CONF_TTS_ENTITY)
-        or entry.data.get(CONF_TTS_ENTITY)
-        or ""
-    )
-    media_player_entity = (
-        entry.options.get(CONF_MEDIA_PLAYER_ENTITY)
-        or entry.data.get(CONF_MEDIA_PLAYER_ENTITY)
-        or ""
-    )
-    announcements = (
-        entry.options.get(CONF_ANNOUNCEMENTS)
-        if CONF_ANNOUNCEMENTS in entry.options
-        else entry.data.get(CONF_ANNOUNCEMENTS, True)
-    )
-
-    automation_key = f"pivot_{suffix}_announcements"
-
-    # Remove existing automation first
-    await _remove_announcements_automation(hass, entry)
-
-    # Only create if tts/media player are configured (announcements flag controls bank-change
-    # announcements; value announcements have their own per-bank switches, so we always
-    # create the automation when TTS is configured)
-    if not tts_entity or not media_player_entity:
-        _LOGGER.debug(
-            "Pivot: skipping announcements automation for %s (tts=%s media_player=%s)",
-            suffix, tts_entity, media_player_entity,
-        )
-        return
-
-    # Try to find the button event entity
-    button_event_entity = None
-    if device_id:
-        button_event_entity = _get_button_event_entity(hass, device_id)
-        if button_event_entity:
-            _LOGGER.debug("Pivot: found button event entity %s", button_event_entity)
-        else:
-            _LOGGER.warning(
-                "Pivot: could not find button press event entity for device %s — "
-                "triple press trigger will be omitted", device_id
-            )
-
-    mute_entity = f"switch.{suffix}_mute_announcements"
-
-    # ── Triggers ─────────────────────────────────────────────────────────────
-    # Bank-value triggers fire the debounced value-announcement branch.
-    # Bank/mode triggers fire the instant announcement branches.
-    triggers = [
-        {
-            "trigger": "state",
-            "entity_id": f"number.{suffix}_active_bank",
-            "id": "bank_change",
-        },
-        {
-            "trigger": "state",
-            "entity_id": f"switch.{suffix}_control_mode",
-            "id": "control_mode_change",
-        },
-    ]
-    for bank in range(NUM_BANKS):
-        triggers.append({
-            "trigger": "state",
-            "entity_id": f"number.{suffix}_bank_{bank}_value",
-            "id": f"val_bank_{bank}",
-        })
-    if button_event_entity:
-        triggers.append({
-            "trigger": "state",
-            "entity_id": button_event_entity,
-            "id": "button_press",
-        })
-
-    # ── Shared helpers ────────────────────────────────────────────────────────
-    # Resolves the active bank's assigned entity name for announcement branches.
-    bank_variables = {
-        "control_mode_on": f"{{{{ is_state('switch.{suffix}_control_mode', 'on') }}}}",
-        "bank": f"{{{{ states('number.{suffix}_active_bank') | int(1) - 1 }}}}",
-        "bank_entity": (
-            f"{{% set entities = ["
-            f"states('text.{suffix}_bank_0_entity'),"
-            f"states('text.{suffix}_bank_1_entity'),"
-            f"states('text.{suffix}_bank_2_entity'),"
-            f"states('text.{suffix}_bank_3_entity')"
-            f"] %}}"
-            f"{{{{ entities[bank] }}}}"
-        ),
-        "entity_name": "{{ state_attr(bank_entity, 'friendly_name') or bank_entity }}",
-    }
-
-    announcements_on = {"condition": "state", "entity_id": f"switch.{suffix}_announcements", "state": "on"}
-    not_muted = {"condition": "template", "value_template": f"{{{{ not is_state('{mute_entity}', 'on') }}}}"}
-
-    def speak(message_template: str) -> list:
-        return [
-            {"variables": bank_variables},
-            {
-                "action": "tts.speak",
-                "target": {"entity_id": tts_entity},
-                "data": {
-                    "media_player_entity_id": media_player_entity,
-                    "message": message_template,
-                },
-            },
-        ]
-
-    # ── Value-announcement branch ─────────────────────────────────────────────
-    # Triggered by bank_N_value changes; 600 ms debounce via mode:restart delay.
-    # Each bank's announce_value switch gates its own announcements independently
-    # of the system-wide announcements switch.
-    val_tts_message = (
-        "{% if domain == 'climate' %}"
-        "{% set temp = state_attr(target_entity, 'temperature') %}"
-        "Temperature {{ temp | round(0) | int }} degrees."
-        "{% elif domain == 'cover' %}"
-        "{% set pos = state_attr(target_entity, 'current_position') %}"
-        "{{ pos | round(0) | int }} percent open."
-        "{% elif domain == 'light' %}"
-        "Brightness {{ bank_value }} percent."
-        "{% elif domain == 'media_player' %}"
-        "Volume {{ bank_value }} percent."
-        "{% elif domain == 'fan' %}"
-        "Speed {{ bank_value }} percent."
-        "{% elif domain == 'number' %}"
-        "{% set unit = state_attr(target_entity, 'unit_of_measurement') %}"
-        "Set to {{ states(target_entity) }}{% if unit %} {{ unit }}{% endif %}."
-        "{% endif %}"
-    )
-
-    val_branch = {
-        "conditions": [
-            {
-                "condition": "trigger",
-                "id": [f"val_bank_{b}" for b in range(NUM_BANKS)],
-            },
-            {
-                "condition": "template",
-                "value_template": "{{ trigger.to_state.state not in ['unavailable', 'unknown', 'none'] }}",
-            },
-        ],
-        "sequence": [
-            # Resolve which bank triggered and its announce/entity switches
-            {
-                "variables": {
-                    "val_bank_idx": (
-                        "{% set map = {"
-                        + ", ".join(f"'val_bank_{b}': {b}" for b in range(NUM_BANKS))
-                        + "} %}{{ map[trigger.id] }}"
-                    ),
-                    "announce_switch": f"switch.{suffix}_bank_{{{{ val_bank_idx }}}}_announce_value",
-                    "bank_entity_id": f"text.{suffix}_bank_{{{{ val_bank_idx }}}}_entity",
-                }
-            },
-            # Early exit: announce switch off or no entity assigned — skip the delay
-            {
-                "condition": "template",
-                "value_template": (
-                    "{{ is_state(announce_switch, 'on')"
-                    " and states(bank_entity_id) | length > 0 }}"
-                ),
-            },
-            # 600 ms debounce — mode:restart cancels this if the knob keeps moving
-            {"delay": {"milliseconds": 600}},
-            # Post-debounce variables — read state after knob settles
-            {
-                "variables": {
-                    "target_entity": "{{ states(bank_entity_id) }}",
-                    "domain": "{{ target_entity.split('.')[0] if '.' in target_entity else '' }}",
-                    "bank_value": "{{ trigger.to_state.state | float(0) | round(0) | int }}",
-                }
-            },
-            # Post-debounce guard: not muted, supported domain, entity available
-            {
-                "condition": "template",
-                "value_template": (
-                    f"{{{{ not is_state('{mute_entity}', 'on')"
-                    " and domain in ['climate', 'cover', 'light', 'media_player', 'fan', 'number']"
-                    " and states(target_entity) not in ['unavailable', 'unknown'] }}}}"
-                ),
-            },
-            {
-                "action": "tts.speak",
-                "target": {"entity_id": tts_entity},
-                "data": {
-                    "media_player_entity_id": media_player_entity,
-                    "message": val_tts_message,
-                },
-            },
-        ],
-    }
-
-    # ── Announcement branches (bank/mode/triple-press) ────────────────────────
-    # These fire instantly (no delay). announcements switch + mute both apply.
-    choose_actions = [
-        val_branch,
-        # Control mode turned on -> "Control mode on, [entity]"
-        {
-            "conditions": [
-                {"condition": "trigger", "id": "control_mode_change"},
-                {"condition": "template", "value_template": "{{ trigger.to_state.state == 'on' }}"},
-                announcements_on,
-                not_muted,
-            ],
-            "sequence": speak("Control mode on, {{ entity_name }}"),
-        },
-        # Control mode turned off -> "Control mode off"
-        {
-            "conditions": [
-                {"condition": "trigger", "id": "control_mode_change"},
-                {"condition": "template", "value_template": "{{ trigger.to_state.state == 'off' }}"},
-                announcements_on,
-                not_muted,
-            ],
-            "sequence": speak("Control mode off"),
-        },
-        # Bank change (only when control mode is on)
-        {
-            "conditions": [
-                {"condition": "trigger", "id": "bank_change"},
-                {"condition": "state", "entity_id": f"switch.{suffix}_control_mode", "state": "on"},
-                announcements_on,
-                not_muted,
-            ],
-            "sequence": speak("{{ entity_name }}"),
-        },
-    ]
-
-    if button_event_entity:
-        # Triple press -> speak entity name (control mode) or "Control mode off" (voice mode)
-        choose_actions.insert(1, {
-            "conditions": [
-                {"condition": "trigger", "id": "button_press"},
-                {
-                    "condition": "template",
-                    "value_template": "{{ trigger.to_state.attributes.get('event_type') == 'triple_press' }}",
-                },
-                announcements_on,
-                not_muted,
-            ],
-            "sequence": [
-                {"variables": bank_variables},
-                {
-                    "choose": [
-                        {
-                            "conditions": [{"condition": "template", "value_template": "{{ control_mode_on }}"}],
-                            "sequence": [
-                                {
-                                    "action": "tts.speak",
-                                    "target": {"entity_id": tts_entity},
-                                    "data": {
-                                        "media_player_entity_id": media_player_entity,
-                                        "message": "{{ entity_name }}",
-                                    },
-                                }
-                            ],
-                        }
-                    ],
-                    "default": [
-                        {
-                            "action": "tts.speak",
-                            "target": {"entity_id": tts_entity},
-                            "data": {
-                                "media_player_entity_id": media_player_entity,
-                                "message": "Control mode off",
-                            },
-                        }
-                    ],
-                },
-            ],
-        })
-
-    automation_config = {
-        "id": automation_key,
-        "alias": f"Pivot — {friendly_name} Announcements",
-        "description": "Auto-created by Pivot integration. Do not edit manually.",
-        "triggers": triggers,
-        "conditions": [],
-        "actions": [{"choose": choose_actions}],
-        # restart mode: a new bank-value trigger while the 600 ms delay is running
-        # cancels the pending announcement and restarts — only the settled value is spoken.
-        # Bank-change branches are fast (no delay) so restart has no practical effect on them.
-        "mode": "restart",
-    }
-
-    pivot_auto_path = hass.config.path("pivot", f"{automation_key}.yaml")
-    automations_path = hass.config.path("automations.yaml")
-    include_line = f"- !include pivot/{automation_key}.yaml"
-
-    def _write_automation():
-        import shutil
-
-        # 1. Validate our content before writing
-        test_output = _yaml.dump(automation_config, Dumper=_PivotDumper, default_flow_style=False, allow_unicode=True)
-        try:
-            _yaml.safe_load(test_output)
-        except Exception as e:
-            _LOGGER.error("Pivot: generated automation YAML is invalid, aborting write: %s", e)
-            return
-
-        # 2. Write new file first — automations.yaml is not touched until the file exists
-        os.makedirs(os.path.dirname(pivot_auto_path), exist_ok=True)
-        with open(pivot_auto_path, "w") as f:
-            f.write(test_output)
-
-        # 3. Rewrite automations.yaml atomically: strip all stale/duplicate Pivot lines
-        #    for this key (flat-path or otherwise), then append the correct new line.
-        #    Running this on every write makes it self-healing — broken or duplicate
-        #    entries from prior versions are corrected automatically.
-        marker = f"{automation_key}.yaml"  # matches current and all legacy double-prefix names
-        if os.path.exists(automations_path):
-            with open(automations_path, "r") as f:
-                lines = f.readlines()
-            clean_lines = [l for l in lines if marker not in l and "Auto-added by Pivot" not in l]
-            clean_lines.append(f"\n# Auto-added by Pivot integration — do not edit\n")
-            clean_lines.append(f"{include_line}\n")
-            backup_path = automations_path + ".pivot_backup"
-            if not os.path.exists(backup_path):
-                shutil.copy2(automations_path, backup_path)
-                _LOGGER.info("Pivot: backed up automations.yaml to %s", backup_path)
-            with open(automations_path, "w") as f:
-                f.writelines(clean_lines)
-        else:
-            with open(automations_path, "w") as f:
-                f.write(f"# Auto-added by Pivot integration — do not edit\n")
-                f.write(f"{include_line}\n")
-
-        # 4. Remove legacy files last — automations.yaml is already correct
-        for old_path in [
-            hass.config.path("pivot", f"pivot_{automation_key}.yaml"),  # old double-prefix subdir
-            hass.config.path(f"pivot_{automation_key}.yaml"),            # old double-prefix flat
-        ]:
-            if os.path.exists(old_path):
-                os.remove(old_path)
-                _LOGGER.info("Pivot: removed legacy file %s", old_path)
-
-    await hass.async_add_executor_job(_write_automation)
-
-    try:
-        await hass.services.async_call("automation", "reload", blocking=True)
-        _LOGGER.info("Pivot: created automation %s", automation_key)
-    except Exception as e:
-        _LOGGER.warning("Pivot: could not reload automations: %s", e)
-
-
 async def _remove_announcements_automation(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove Pivot automation file and its include line from automations.yaml."""
+    """Remove legacy managed-mode automation file and its include line from automations.yaml."""
     suffix = entry.data[CONF_DEVICE_SUFFIX]
     automation_key = f"pivot_{suffix}_announcements"
     pivot_auto_path = hass.config.path("pivot", f"{automation_key}.yaml")
@@ -1589,20 +1139,20 @@ async def _remove_announcements_automation(hass: HomeAssistant, entry: ConfigEnt
         ]:
             if os.path.exists(path):
                 os.remove(path)
-        # Remove the include line from automations.yaml
+        # Remove all Pivot content for this key from automations.yaml
         if not os.path.exists(automations_path):
             return False
         with open(automations_path, "r") as f:
             lines = f.readlines()
-        include_marker = f"{automation_key}.yaml"
-        new_lines = [l for l in lines if include_marker not in l and "Auto-added by Pivot" not in l]
+        new_lines = _strip_automation_lines(lines, automation_key)
         if len(new_lines) == len(lines):
             return False
         with open(automations_path, "w") as f:
             f.writelines(new_lines)
         return True
 
-    removed = await hass.async_add_executor_job(_remove_automation)
+    async with _AUTOMATIONS_YAML_LOCK:
+        removed = await hass.async_add_executor_job(_remove_automation)
     if removed:
         try:
             await hass.services.async_call("automation", "reload", blocking=True)

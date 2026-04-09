@@ -4,70 +4,37 @@ blueprint:
     Toggles the entity assigned to the currently active bank on a Pivot device.
 
 
-    **Important:** When saving this script, you must set the script ID to
-    `{suffix}_bank_toggle` — so the full entity ID becomes `script.{suffix}_bank_toggle`.
-    The firmware calls this entity ID directly on button press. Replace `{suffix}` with
-    your device suffix (e.g. `ha_voice_orange`). The friendly name of the script can be
-    whatever you like.
+    **Important:** When saving this script, set the script ID to
+    `{suffix}_bank_toggle` so the full entity ID becomes
+    `script.{suffix}_bank_toggle`. Replace `{suffix}` with your device suffix
+    (e.g. `ha_voice_orange`). The firmware calls this entity ID directly on
+    button press.
 
 
-    Supports: lights, switches, fans, covers, media players (play/pause), scenes, and scripts.
+    Supports: lights, switches, fans, covers, media players (play/pause),
+    scenes, and scripts.
   domain: script
   input:
-    active_bank_entity:
-      name: Active Bank Number
-      description: "The Active Bank number entity for your Pivot device, e.g. `number.ha_voice_1_active_bank`."
+    suffix:
+      name: Device Suffix
+      description: >
+        Your Pivot device suffix, e.g. `ha_voice_orange`. All entity IDs
+        are derived automatically from this value.
       selector:
-        entity:
-          domain: number
-
-    bank_0_entity:
-      name: Bank 1 Entity (text)
-      description: "The Bank 1 Entity text entity, e.g. `text.ha_voice_1_bank_0_entity`."
-      selector:
-        entity:
-          domain: text
-
-    bank_1_entity:
-      name: Bank 2 Entity (text)
-      description: "The Bank 2 Entity text entity, e.g. `text.ha_voice_1_bank_1_entity`."
-      selector:
-        entity:
-          domain: text
-
-    bank_2_entity:
-      name: Bank 3 Entity (text)
-      description: "The Bank 3 Entity text entity, e.g. `text.ha_voice_1_bank_2_entity`."
-      selector:
-        entity:
-          domain: text
-
-    bank_3_entity:
-      name: Bank 4 Entity (text)
-      description: "The Bank 4 Entity text entity, e.g. `text.ha_voice_1_bank_3_entity`."
-      selector:
-        entity:
-          domain: text
+        text:
 
 variables:
-  active_bank_entity: !input active_bank_entity
-  bank_0_entity: !input bank_0_entity
-  bank_1_entity: !input bank_1_entity
-  bank_2_entity: !input bank_2_entity
-  bank_3_entity: !input bank_3_entity
+  suffix: !input suffix
 
 sequence:
   - variables:
-      bank: "{{ states(active_bank_entity) | int - 1 }}"
-      bank_entity: >
-        {% set entities = [
-          states(bank_0_entity),
-          states(bank_1_entity),
-          states(bank_2_entity),
-          states(bank_3_entity)
-        ] %}
-        {{ entities[bank] }}
+      bank: "{{ states('number.' ~ suffix ~ '_active_bank') | int - 1 }}"
+      bank_entity: "{{ states('text.' ~ suffix ~ '_bank_' ~ bank ~ '_entity') }}"
       domain: "{{ bank_entity.split('.')[0] if '.' in bank_entity else '' }}"
+  - condition: template
+    value_template: >
+      {{ bank_entity | length > 0
+         and bank_entity not in ('unknown', 'unavailable', 'timer') }}
   - choose:
       - conditions: "{{ domain == 'scene' }}"
         sequence:
