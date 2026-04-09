@@ -205,6 +205,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await _cleanup_managed_files(hass, entry)
         management_mode = MANAGEMENT_BLUEPRINTS
 
+    # Always clean up any old per-device blueprint files and backup files from managed mode
+    await _cleanup_legacy_blueprint_files(hass, entry)
+
     if management_mode == MANAGEMENT_BLUEPRINTS:
         await _install_blueprints(hass, entry)
     # MANAGEMENT_NEITHER: do nothing
@@ -1031,8 +1034,8 @@ async def _install_blueprints(hass: HomeAssistant, entry: ConfigEntry) -> None:
     import shutil
 
     integration_dir = os.path.dirname(__file__)
-    src_automation = os.path.join(integration_dir, "..", "..", "blueprints", "automation")
-    src_script = os.path.join(integration_dir, "..", "..", "blueprints", "script")
+    src_automation = os.path.join(integration_dir, "blueprints", "automation")
+    src_script = os.path.join(integration_dir, "blueprints", "script")
 
     dest_automation = hass.config.path("blueprints", "automation", "pivot")
     dest_script = hass.config.path("blueprints", "script", "pivot")
@@ -1074,6 +1077,44 @@ async def _install_blueprints(hass: HomeAssistant, entry: ConfigEntry) -> None:
             },
             blocking=False,
         )
+
+
+async def _cleanup_legacy_blueprint_files(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove old per-device blueprint files and backup files left by managed mode."""
+    suffix = entry.data[CONF_DEVICE_SUFFIX]
+
+    def _remove():
+        removed = []
+        # Remove old per-device blueprint files (e.g. pivot_ha_voice_orange_announcements.yaml)
+        for bp_dir in [
+            hass.config.path("blueprints", "automation", "pivot"),
+            hass.config.path("blueprints", "script", "pivot"),
+        ]:
+            if not os.path.isdir(bp_dir):
+                continue
+            for fname in os.listdir(bp_dir):
+                if suffix in fname and fname.endswith(".yaml"):
+                    try:
+                        os.remove(os.path.join(bp_dir, fname))
+                        removed.append(fname)
+                    except OSError:
+                        pass
+        # Remove backup files created during managed-mode file writes
+        for backup in [
+            hass.config.path("automations.yaml.pivot_backup"),
+            hass.config.path("scripts.yaml.pivot_backup"),
+        ]:
+            if os.path.exists(backup):
+                try:
+                    os.remove(backup)
+                    removed.append(os.path.basename(backup))
+                except OSError:
+                    pass
+        return removed
+
+    removed = await hass.async_add_executor_job(_remove)
+    if removed:
+        _LOGGER.info("Pivot: removed legacy managed-mode files for %s: %s", suffix, removed)
 
 
 async def _cleanup_managed_files(hass: HomeAssistant, entry: ConfigEntry) -> None:
