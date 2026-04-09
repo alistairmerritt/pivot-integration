@@ -110,20 +110,20 @@ def _bank_entity_schema(current: dict[str, str] | None = None) -> vol.Schema:
     current = current or {}
     fields = {}
 
-    timer_defaults = [
-        str(i + 1)
-        for i in range(NUM_BANKS)
-        if current.get(f"bank_{i}_entity") == "timer"
-    ]
-    fields[vol.Optional("timer_banks", default=timer_defaults)] = selector.SelectSelector(
+    timer_default = next(
+        (str(i + 1) for i in range(NUM_BANKS) if current.get(f"bank_{i}_entity") == "timer"),
+        "none",
+    )
+    fields[vol.Optional("timer_banks", default=timer_default)] = selector.SelectSelector(
         selector.SelectSelectorConfig(
             options=[
+                selector.SelectOptionDict(value="none", label="No timer bank"),
                 selector.SelectOptionDict(value="1", label="Bank 1"),
                 selector.SelectOptionDict(value="2", label="Bank 2"),
                 selector.SelectOptionDict(value="3", label="Bank 3"),
                 selector.SelectOptionDict(value="4", label="Bank 4"),
             ],
-            multiple=True,
+            multiple=False,
             mode=selector.SelectSelectorMode.LIST,
         )
     )
@@ -146,16 +146,16 @@ def _bank_entity_schema(current: dict[str, str] | None = None) -> vol.Schema:
 
 
 def _apply_timer_banks(user_input: dict) -> dict[str, str]:
-    """Return a dict of bank_N_entity values with timer banks resolved.
+    """Return a dict of bank_N_entity values with the timer bank resolved.
 
-    Banks selected in 'timer_banks' are set to 'timer'; all others use the
-    entity picker value (or empty string).
+    The selected bank in 'timer_banks' is set to 'timer'; all others use the
+    entity picker value (or empty string). 'none' means no timer bank.
     """
-    timer_banks = user_input.get("timer_banks", [])
+    timer_bank = user_input.get("timer_banks", "none")
     result = {}
     for i in range(NUM_BANKS):
         key = f"bank_{i}_entity"
-        if str(i + 1) in timer_banks:
+        if str(i + 1) == timer_bank:
             result[key] = "timer"
         else:
             result[key] = user_input.get(key) or ""
