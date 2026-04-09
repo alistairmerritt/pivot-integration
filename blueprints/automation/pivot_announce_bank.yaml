@@ -80,8 +80,7 @@ blueprint:
         announcements are suppressed. Leave blank if not using mute.
       default: ""
       selector:
-        entity:
-          domain: switch
+        text:
 
 variables:
   tts_engine: !input tts_engine
@@ -107,7 +106,7 @@ condition:
     entity_id: !input announce_bank_switch
     state: "on"
   - condition: template
-    value_template: "{{ mute_entity == '' or not is_state(mute_entity, 'on') }}"
+    value_template: "{{ not mute_entity or not is_state(mute_entity, 'on') }}"
 
 action:
   - choose:

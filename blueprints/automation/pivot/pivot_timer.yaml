@@ -93,8 +93,7 @@ blueprint:
         timer announcements are suppressed. Leave blank if not using mute.
       default: ""
       selector:
-        entity:
-          domain: switch
+        text:
 
 variables:
   suffix: !input suffix
@@ -217,7 +216,7 @@ action:
                       entity_id: "{{ dim_switch_entity }}"
                   - if:
                       - condition: template
-                        value_template: "{{ tts_entity | length > 0 and (mute_entity == '' or not is_state(mute_entity, 'on')) }}"
+                        value_template: "{{ tts_entity | length > 0 and (not mute_entity or not is_state(mute_entity, 'on')) }}"
                     then:
                       - action: tts.speak
                         target:
@@ -271,7 +270,7 @@ action:
                         {{ [0, [100, (remaining_secs | float / dur_secs * 100) | round(0) | int] | min] | max if dur_secs > 0 else 0 }}
                   - if:
                       - condition: template
-                        value_template: "{{ tts_entity | length > 0 and (mute_entity == '' or not is_state(mute_entity, 'on')) }}"
+                        value_template: "{{ tts_entity | length > 0 and (not mute_entity or not is_state(mute_entity, 'on')) }}"
                     then:
                       - action: tts.speak
                         target:
@@ -314,7 +313,7 @@ action:
                       entity_id: "{{ dim_switch_entity }}"
                   - if:
                       - condition: template
-                        value_template: "{{ tts_entity | length > 0 and (mute_entity == '' or not is_state(mute_entity, 'on')) }}"
+                        value_template: "{{ tts_entity | length > 0 and (not mute_entity or not is_state(mute_entity, 'on')) }}"
                     then:
                       - action: tts.speak
                         target:
@@ -372,7 +371,7 @@ action:
               entity_id: "{{ dim_switch_entity }}"
           - if:
               - condition: template
-                value_template: "{{ tts_entity | length > 0 and (mute_entity == '' or not is_state(mute_entity, 'on')) }}"
+                value_template: "{{ tts_entity | length > 0 and (not mute_entity or not is_state(mute_entity, 'on')) }}"
             then:
               - action: tts.speak
                 target:
@@ -431,7 +430,7 @@ action:
               # takes over the speaker with the alarm sound.
               - if:
                   - condition: template
-                    value_template: "{{ tts_entity | length > 0 and finish_message | length > 0 and (mute_entity == '' or not is_state(mute_entity, 'on')) }}"
+                    value_template: "{{ tts_entity | length > 0 and finish_message | length > 0 and (not mute_entity or not is_state(mute_entity, 'on')) }}"
                 then:
                   - action: tts.speak
                     target:
@@ -537,7 +536,7 @@ action:
             value_template: "{{ wait.trigger is none }}"
           - if:
               - condition: template
-                value_template: "{{ tts_entity | length > 0 and (mute_entity == '' or not is_state(mute_entity, 'on')) }}"
+                value_template: "{{ tts_entity | length > 0 and (not mute_entity or not is_state(mute_entity, 'on')) }}"
             then:
               - action: tts.speak
                 target:

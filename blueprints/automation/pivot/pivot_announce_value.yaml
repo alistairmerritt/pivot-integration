@@ -73,8 +73,7 @@ blueprint:
         all spoken announcements are suppressed. Leave blank if not using mute.
       default: ""
       selector:
-        entity:
-          domain: switch
+        text:
 
 variables:
   suffix: !input suffix
@@ -133,7 +132,7 @@ action:
   # Post-debounce checks: mute off, entity available, domain supported
   - condition: template
     value_template: >
-      {{ (mute_entity == '' or not is_state(mute_entity, 'on'))
+      {{ (not mute_entity or not is_state(mute_entity, 'on'))
          and domain in ['climate', 'cover', 'light', 'media_player', 'fan', 'number']
          and states(target_entity) not in ['unavailable', 'unknown'] }}
 

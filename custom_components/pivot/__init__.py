@@ -1269,12 +1269,13 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
     # Remove existing automation first
     await _remove_announcements_automation(hass, entry)
 
-    # Only create if announcements is enabled and tts/media player are configured
-    if not announcements or not tts_entity or not media_player_entity:
+    # Only create if tts/media player are configured (announcements flag controls bank-change
+    # announcements; value announcements have their own per-bank switches, so we always
+    # create the automation when TTS is configured)
+    if not tts_entity or not media_player_entity:
         _LOGGER.debug(
-            "Pivot: skipping announcements automation for %s "
-            "(announcements=%s tts=%s media_player=%s)",
-            suffix, announcements, tts_entity, media_player_entity
+            "Pivot: skipping announcements automation for %s (tts=%s media_player=%s)",
+            suffix, tts_entity, media_player_entity,
         )
         return
 
@@ -1290,6 +1291,11 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
                 "triple press trigger will be omitted", device_id
             )
 
+    mute_entity = f"switch.{suffix}_mute_announcements"
+
+    # ── Triggers ─────────────────────────────────────────────────────────────
+    # Bank-value triggers fire the debounced value-announcement branch.
+    # Bank/mode triggers fire the instant announcement branches.
     triggers = [
         {
             "trigger": "state",
@@ -1302,6 +1308,12 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
             "id": "control_mode_change",
         },
     ]
+    for bank in range(NUM_BANKS):
+        triggers.append({
+            "trigger": "state",
+            "entity_id": f"number.{suffix}_bank_{bank}_value",
+            "id": f"val_bank_{bank}",
+        })
     if button_event_entity:
         triggers.append({
             "trigger": "state",
@@ -1309,7 +1321,8 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
             "id": "button_press",
         })
 
-    # Shared variables block — resolves active bank entity name
+    # ── Shared helpers ────────────────────────────────────────────────────────
+    # Resolves the active bank's assigned entity name for announcement branches.
     bank_variables = {
         "control_mode_on": f"{{{{ is_state('switch.{suffix}_control_mode', 'on') }}}}",
         "bank": f"{{{{ states('number.{suffix}_active_bank') | int(1) - 1 }}}}",
@@ -1325,6 +1338,9 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
         "entity_name": "{{ state_attr(bank_entity, 'friendly_name') or bank_entity }}",
     }
 
+    announcements_on = {"condition": "state", "entity_id": f"switch.{suffix}_announcements", "state": "on"}
+    not_muted = {"condition": "template", "value_template": f"{{{{ not is_state('{mute_entity}', 'on') }}}}"}
+
     def speak(message_template: str) -> list:
         return [
             {"variables": bank_variables},
@@ -1338,57 +1354,138 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
             },
         ]
 
-    # control mode on -> "Control mode on, [entity name]"
-    control_mode_on_sequence = speak("Control mode on, {{ entity_name }}")
-    # control mode off -> "Control mode off"
-    control_mode_off_sequence = speak("Control mode off")
-    # bank change (only in control mode) -> "[entity name]"
-    bank_change_sequence = speak("{{ entity_name }}")
+    # ── Value-announcement branch ─────────────────────────────────────────────
+    # Triggered by bank_N_value changes; 600 ms debounce via mode:restart delay.
+    # Each bank's announce_value switch gates its own announcements independently
+    # of the system-wide announcements switch.
+    val_tts_message = (
+        "{% if domain == 'climate' %}"
+        "{% set temp = state_attr(target_entity, 'temperature') %}"
+        "Temperature {{ temp | round(0) | int }} degrees."
+        "{% elif domain == 'cover' %}"
+        "{% set pos = state_attr(target_entity, 'current_position') %}"
+        "{{ pos | round(0) | int }} percent open."
+        "{% elif domain == 'light' %}"
+        "Brightness {{ bank_value }} percent."
+        "{% elif domain == 'media_player' %}"
+        "Volume {{ bank_value }} percent."
+        "{% elif domain == 'fan' %}"
+        "Speed {{ bank_value }} percent."
+        "{% elif domain == 'number' %}"
+        "{% set unit = state_attr(target_entity, 'unit_of_measurement') %}"
+        "Set to {{ states(target_entity) }}{% if unit %} {{ unit }}{% endif %}."
+        "{% endif %}"
+    )
 
-    conditions = [
-        {
-            "condition": "state",
-            "entity_id": f"switch.{suffix}_announcements",
-            "state": "on",
-        }
-    ]
+    val_branch = {
+        "conditions": [
+            {
+                "condition": "trigger",
+                "id": [f"val_bank_{b}" for b in range(NUM_BANKS)],
+            },
+            {
+                "condition": "template",
+                "value_template": "{{ trigger.to_state.state not in ['unavailable', 'unknown', 'none'] }}",
+            },
+        ],
+        "sequence": [
+            # Resolve which bank triggered and its announce/entity switches
+            {
+                "variables": {
+                    "val_bank_idx": (
+                        "{% set map = {"
+                        + ", ".join(f"'val_bank_{b}': {b}" for b in range(NUM_BANKS))
+                        + "} %}{{ map[trigger.id] }}"
+                    ),
+                    "announce_switch": f"switch.{suffix}_bank_{{{{ val_bank_idx }}}}_announce_value",
+                    "bank_entity_id": f"text.{suffix}_bank_{{{{ val_bank_idx }}}}_entity",
+                }
+            },
+            # Early exit: announce switch off or no entity assigned — skip the delay
+            {
+                "condition": "template",
+                "value_template": (
+                    "{{ is_state(announce_switch, 'on')"
+                    " and states(bank_entity_id) | length > 0 }}"
+                ),
+            },
+            # 600 ms debounce — mode:restart cancels this if the knob keeps moving
+            {"delay": {"milliseconds": 600}},
+            # Post-debounce variables — read state after knob settles
+            {
+                "variables": {
+                    "target_entity": "{{ states(bank_entity_id) }}",
+                    "domain": "{{ target_entity.split('.')[0] if '.' in target_entity else '' }}",
+                    "bank_value": "{{ trigger.to_state.state | float(0) | round(0) | int }}",
+                }
+            },
+            # Post-debounce guard: not muted, supported domain, entity available
+            {
+                "condition": "template",
+                "value_template": (
+                    f"{{{{ not is_state('{mute_entity}', 'on')"
+                    " and domain in ['climate', 'cover', 'light', 'media_player', 'fan', 'number']"
+                    " and states(target_entity) not in ['unavailable', 'unknown'] }}}}"
+                ),
+            },
+            {
+                "action": "tts.speak",
+                "target": {"entity_id": tts_entity},
+                "data": {
+                    "media_player_entity_id": media_player_entity,
+                    "message": val_tts_message,
+                },
+            },
+        ],
+    }
 
+    # ── Announcement branches (bank/mode/triple-press) ────────────────────────
+    # These fire instantly (no delay). announcements switch + mute both apply.
     choose_actions = [
+        val_branch,
         # Control mode turned on -> "Control mode on, [entity]"
         {
             "conditions": [
                 {"condition": "trigger", "id": "control_mode_change"},
                 {"condition": "template", "value_template": "{{ trigger.to_state.state == 'on' }}"},
+                announcements_on,
+                not_muted,
             ],
-            "sequence": control_mode_on_sequence,
+            "sequence": speak("Control mode on, {{ entity_name }}"),
         },
         # Control mode turned off -> "Control mode off"
         {
             "conditions": [
                 {"condition": "trigger", "id": "control_mode_change"},
                 {"condition": "template", "value_template": "{{ trigger.to_state.state == 'off' }}"},
+                announcements_on,
+                not_muted,
             ],
-            "sequence": control_mode_off_sequence,
+            "sequence": speak("Control mode off"),
         },
         # Bank change (only when control mode is on)
         {
             "conditions": [
                 {"condition": "trigger", "id": "bank_change"},
                 {"condition": "state", "entity_id": f"switch.{suffix}_control_mode", "state": "on"},
+                announcements_on,
+                not_muted,
             ],
-            "sequence": bank_change_sequence,
+            "sequence": speak("{{ entity_name }}"),
         },
     ]
+
     if button_event_entity:
-        # Triple press in control mode -> "Control mode on, [entity]"
-        # Triple press in listening mode -> "Control mode off"
-        choose_actions.insert(0, {
+        # Triple press -> speak entity name (control mode) or "Control mode off" (voice mode)
+        choose_actions.insert(1, {
             "conditions": [
                 {"condition": "trigger", "id": "button_press"},
                 {
                     "condition": "template",
                     "value_template": "{{ trigger.to_state.attributes.get('event_type') == 'triple_press' }}",
                 },
+                announcements_on,
+                not_muted,
             ],
             "sequence": [
                 {"variables": bank_variables},
@@ -1427,9 +1524,12 @@ async def _write_announcements_automation(hass: HomeAssistant, entry: ConfigEntr
         "alias": f"Pivot — {friendly_name} Announcements",
         "description": "Auto-created by Pivot integration. Do not edit manually.",
         "triggers": triggers,
-        "conditions": conditions,
+        "conditions": [],
         "actions": [{"choose": choose_actions}],
-        "mode": "single",
+        # restart mode: a new bank-value trigger while the 600 ms delay is running
+        # cancels the pending announcement and restarts — only the settled value is spoken.
+        # Bank-change branches are fast (no delay) so restart has no practical effect on them.
+        "mode": "restart",
     }
 
     pivot_auto_path = hass.config.path("pivot", f"{automation_key}.yaml")
