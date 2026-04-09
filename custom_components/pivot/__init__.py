@@ -68,25 +68,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unsubs = _setup_bank_control_listener(hass, entry)
     hass.data[DOMAIN][entry.entry_id + "_unsub"] = unsubs
 
-    # Apply any bank entity values stored during initial setup
-    suffix = entry.data[CONF_DEVICE_SUFFIX]
-    for i in range(4):
-        key = f"bank_{i}_entity"
-        value = entry.data.get(key, "")
-        if value:
-            from .const import entity_id as make_entity_id
-            text_eid = make_entity_id("text", suffix, key)
-            async def _write_bank(eid=text_eid, val=value):
-                try:
-                    await hass.services.async_call(
-                        "text", "set_value",
-                        {"entity_id": eid, "value": val},
-                        blocking=False,
-                    )
-                except Exception:
-                    pass
-            hass.async_create_task(_write_bank())
-
     # Zero bank values for passive domains on startup so the firmware cache
     # is correct even if HA restarted while a passive entity was assigned.
     _PASSIVE_DOMAINS_STARTUP = {"scene", "script", "switch", "input_boolean"}
