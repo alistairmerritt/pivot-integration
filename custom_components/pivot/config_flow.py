@@ -100,13 +100,34 @@ def _suffix_in_use(hass: HomeAssistant, suffix: str) -> bool:
 
 
 def _bank_entity_schema(current: dict[str, str] | None = None) -> vol.Schema:
-    """Build a schema with one EntitySelector per bank.
+    """Build a schema with a timer-bank multi-select and one EntitySelector per bank.
 
-    Fields are fully optional — leaving a bank empty is valid.
-    We avoid default="" because EntitySelector rejects empty string as an invalid entity ID.
+    A 'timer_banks' multi-select lets users mark any bank as a timer bank without
+    typing the reserved value 'timer' into an entity field. The step handler writes
+    'timer' to those banks and ignores their entity picker value.
+    Entity pickers are shown for all banks but left blank for timer banks.
     """
     current = current or {}
     fields = {}
+
+    timer_defaults = [
+        str(i + 1)
+        for i in range(NUM_BANKS)
+        if current.get(f"bank_{i}_entity") == "timer"
+    ]
+    fields[vol.Optional("timer_banks", default=timer_defaults)] = selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=[
+                selector.SelectOptionDict(value="1", label="Bank 1"),
+                selector.SelectOptionDict(value="2", label="Bank 2"),
+                selector.SelectOptionDict(value="3", label="Bank 3"),
+                selector.SelectOptionDict(value="4", label="Bank 4"),
+            ],
+            multiple=True,
+            mode=selector.SelectSelectorMode.LIST,
+        )
+    )
+
     entity_sel = selector.EntitySelector(
         selector.EntitySelectorConfig(
             domain=["light", "switch", "fan", "climate", "media_player", "cover", "scene", "script", "input_number", "number"],
@@ -116,11 +137,29 @@ def _bank_entity_schema(current: dict[str, str] | None = None) -> vol.Schema:
     for i in range(NUM_BANKS):
         key = f"bank_{i}_entity"
         existing = current.get(key) or None
-        if existing:
+        # Don't pre-fill 'timer' — that bank is represented by the timer_banks selector
+        if existing and existing != "timer":
             fields[vol.Optional(key, default=existing)] = entity_sel
         else:
             fields[vol.Optional(key)] = entity_sel
     return vol.Schema(fields)
+
+
+def _apply_timer_banks(user_input: dict) -> dict[str, str]:
+    """Return a dict of bank_N_entity values with timer banks resolved.
+
+    Banks selected in 'timer_banks' are set to 'timer'; all others use the
+    entity picker value (or empty string).
+    """
+    timer_banks = user_input.get("timer_banks", [])
+    result = {}
+    for i in range(NUM_BANKS):
+        key = f"bank_{i}_entity"
+        if str(i + 1) in timer_banks:
+            result[key] = "timer"
+        else:
+            result[key] = user_input.get(key) or ""
+    return result
 
 
 class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -274,12 +313,8 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         from .const import entity_id as make_entity_id
 
         if user_input is not None:
-            # Write bank entity values to text entities after entry is created
-            # Store them in pending data to be applied post-setup
-            suffix = self._pending_entry_data[CONF_DEVICE_SUFFIX]
-            for i in range(NUM_BANKS):
-                key = f"bank_{i}_entity"
-                self._pending_entry_data[key] = user_input.get(key) or ""
+            for key, value in _apply_timer_banks(user_input).items():
+                self._pending_entry_data[key] = value
             return self.async_create_entry(
                 title=self._friendly_name,
                 data=self._pending_entry_data,
@@ -405,9 +440,8 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
 
         if user_input is not None:
             _LOGGER.debug("async_step_banks user_input: %s", user_input)
-            for i in range(NUM_BANKS):
-                key = f"bank_{i}_entity"
-                value = user_input.get(key) or ""
+            for key, value in _apply_timer_banks(user_input).items():
+                i = int(key.split("_")[1])
                 text_eid = make_entity_id("text", suffix, key)
                 _LOGGER.debug("Writing bank %d: entity_id=%s value=%r", i, text_eid, value)
                 state = self.hass.states.get(text_eid)

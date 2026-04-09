@@ -35,18 +35,16 @@
       },
       "banks_initial": {
         "title": "Assign entities to banks",
-        "description": "Assign a Home Assistant entity to each bank. Enter an entity ID (e.g. `light.living_room`) or `timer` to use that bank as a countdown timer. You can leave banks empty and assign them later.",
+        "description": "Assign a Home Assistant entity to each bank. You can leave banks empty and assign them later.",
         "data": {
+          "timer_banks": "Timer banks",
           "bank_0_entity": "Bank 1",
           "bank_1_entity": "Bank 2",
           "bank_2_entity": "Bank 3",
           "bank_3_entity": "Bank 4"
         },
         "data_description": {
-          "bank_0_entity": "Entity ID (e.g. `light.living_room`) or `timer`",
-          "bank_1_entity": "Entity ID (e.g. `light.living_room`) or `timer`",
-          "bank_2_entity": "Entity ID (e.g. `light.living_room`) or `timer`",
-          "bank_3_entity": "Entity ID (e.g. `light.living_room`) or `timer`"
+          "timer_banks": "Select any banks you want to use as countdown timers. Timer banks are controlled by the Pivot — Timer blueprint, not by entity assignment."
         }
       }
     },
@@ -83,18 +81,16 @@
       },
       "banks": {
         "title": "Bank Entity Assignment",
-        "description": "Assign a Home Assistant entity to each bank. Enter an entity ID (e.g. `light.living_room`) or `timer` to use that bank as a countdown timer. All banks are optional — leave any empty to skip it.\n\n**How it works:** in Control Mode, turn the knob to adjust the entity (brightness, volume, fan speed, etc.) and press the button to toggle it on/off.\n\n**Scenes & scripts** activate on button press only — the knob does nothing for those.",
+        "description": "Assign a Home Assistant entity to each bank. All banks are optional — leave any empty to skip it.\n\n**How it works:** in Control Mode, turn the knob to adjust the entity (brightness, volume, fan speed, etc.) and press the button to toggle it on/off.\n\n**Scenes & scripts** activate on button press only — the knob does nothing for those.",
         "data": {
+          "timer_banks": "Timer banks",
           "bank_0_entity": "Bank 1",
           "bank_1_entity": "Bank 2",
           "bank_2_entity": "Bank 3",
           "bank_3_entity": "Bank 4"
         },
         "data_description": {
-          "bank_0_entity": "Entity ID (e.g. `light.living_room`) or `timer`",
-          "bank_1_entity": "Entity ID (e.g. `light.living_room`) or `timer`",
-          "bank_2_entity": "Entity ID (e.g. `light.living_room`) or `timer`",
-          "bank_3_entity": "Entity ID (e.g. `light.living_room`) or `timer`"
+          "timer_banks": "Select any banks you want to use as countdown timers. Timer banks are controlled by the Pivot — Timer blueprint, not by entity assignment."
         }
       }
     }
