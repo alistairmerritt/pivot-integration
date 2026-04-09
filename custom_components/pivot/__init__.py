@@ -481,6 +481,7 @@ def _setup_bank_control_listener(
         # Timer bank: map knob value (0-100) to timer_duration when idle
         if bank_entity == "timer":
             if new_state.context.parent_id is not None:
+                return
             timer_state_id = f"select.{suffix}_timer_state"
             timer_st = hass.states.get(timer_state_id)
             if timer_st is None or timer_st.state != "idle":
