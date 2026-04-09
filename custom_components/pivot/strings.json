@@ -35,12 +35,18 @@
       },
       "banks_initial": {
         "title": "Assign entities to banks",
-        "description": "Assign a Home Assistant entity to each bank. You can leave banks empty and assign them later.",
+        "description": "Assign a Home Assistant entity to each bank. Enter an entity ID (e.g. `light.living_room`) or `timer` to use that bank as a countdown timer. You can leave banks empty and assign them later.",
         "data": {
-          "bank_0_entity": "Bank 1 entity",
-          "bank_1_entity": "Bank 2 entity",
-          "bank_2_entity": "Bank 3 entity",
-          "bank_3_entity": "Bank 4 entity"
+          "bank_0_entity": "Bank 1",
+          "bank_1_entity": "Bank 2",
+          "bank_2_entity": "Bank 3",
+          "bank_3_entity": "Bank 4"
+        },
+        "data_description": {
+          "bank_0_entity": "Entity ID (e.g. `light.living_room`) or `timer`",
+          "bank_1_entity": "Entity ID (e.g. `light.living_room`) or `timer`",
+          "bank_2_entity": "Entity ID (e.g. `light.living_room`) or `timer`",
+          "bank_3_entity": "Entity ID (e.g. `light.living_room`) or `timer`"
         }
       }
     },
@@ -77,7 +83,7 @@
       },
       "banks": {
         "title": "Bank Entity Assignment",
-        "description": "Assign a Home Assistant entity to each bank. All banks are optional \u2014 leave any empty to skip it.\n\n**How it works:** in Control Mode, turn the knob to adjust the entity (brightness, volume, fan speed, etc.) and press the button to toggle it on/off.\n\n**Scenes & scripts** activate on button press only \u2014 the knob does nothing for those.\n\nSupported entities: lights, switches, fans, covers, climate, media players, scenes, scripts.",
+        "description": "Assign a Home Assistant entity to each bank. Enter an entity ID (e.g. `light.living_room`) or `timer` to use that bank as a countdown timer. All banks are optional — leave any empty to skip it.\n\n**How it works:** in Control Mode, turn the knob to adjust the entity (brightness, volume, fan speed, etc.) and press the button to toggle it on/off.\n\n**Scenes & scripts** activate on button press only — the knob does nothing for those.",
         "data": {
           "bank_0_entity": "Bank 1",
           "bank_1_entity": "Bank 2",
@@ -85,7 +91,10 @@
           "bank_3_entity": "Bank 4"
         },
         "data_description": {
-          "bank_3_entity": "Bank assignments are stored as entities and work in all setup modes. However, the knob and button will only control your assigned entities automatically if you are using Blueprint setup. In Manual setup, you will need to build your own automations using Pivot's fired events to act on these assignments."
+          "bank_0_entity": "Entity ID (e.g. `light.living_room`) or `timer`",
+          "bank_1_entity": "Entity ID (e.g. `light.living_room`) or `timer`",
+          "bank_2_entity": "Entity ID (e.g. `light.living_room`) or `timer`",
+          "bank_3_entity": "Entity ID (e.g. `light.living_room`) or `timer`"
         }
       }
     }

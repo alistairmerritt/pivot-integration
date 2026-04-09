@@ -85,16 +85,6 @@ blueprint:
       selector:
         text:
 
-    mute_entity:
-      name: Mute Announcements Switch (optional)
-      description: >
-        The Mute Announcements switch for your Pivot device,
-        e.g. `switch.ha_voice_1_mute_announcements`. When on, all spoken
-        timer announcements are suppressed. Leave blank if not using mute.
-      default: ""
-      selector:
-        text:
-
 variables:
   suffix: !input suffix
   bank: !input bank
@@ -102,7 +92,8 @@ variables:
   tts_entity: !input tts_entity
   finish_message: !input finish_message
   silent_mode: !input silent_mode
-  mute_entity: !input mute_entity
+  # Derived automatically from the suffix — mirrors the main Pivot mute switch
+  mute_entity: "switch.{{ suffix }}_mute_announcements"
   # Derive device entities automatically — works regardless of ESPHome device name
   media_player: >
     {{ device_entities(pivot_device)

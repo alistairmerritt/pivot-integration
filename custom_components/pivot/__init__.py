@@ -140,6 +140,69 @@ def _strip_automation_lines(lines: list[str], automation_key: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Domain setup — runs once when the integration is first loaded
+# ---------------------------------------------------------------------------
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Sync bundled blueprints into the user's config directory on every startup."""
+    await hass.async_add_executor_job(_sync_blueprints, hass)
+    return True
+
+
+def _sync_blueprints(hass: HomeAssistant) -> list[str]:
+    """Copy blueprints from custom_components/pivot/blueprints/ → config/blueprints/automation(script)/pivot/.
+
+    Mirrors the directory structure used by the existing _install_blueprints so
+    that blueprints always land at the same paths regardless of how they were
+    first installed.  Only writes files whose content has changed, and uses an
+    atomic temp-file swap so a crash mid-write never leaves a corrupt blueprint.
+
+    Returns a list of relative paths that were actually written.
+    """
+    import shutil
+
+    integration_dir = os.path.dirname(__file__)
+    updated: list[str] = []
+
+    for domain in ("automation", "script"):
+        src_dir = os.path.join(integration_dir, "blueprints", domain)
+        dst_dir = hass.config.path("blueprints", domain, "pivot")
+
+        if not os.path.isdir(src_dir):
+            continue
+
+        os.makedirs(dst_dir, exist_ok=True)
+
+        for fname in os.listdir(src_dir):
+            if not fname.endswith(".yaml"):
+                continue
+
+            src_file = os.path.join(src_dir, fname)
+            dst_file = os.path.join(dst_dir, fname)
+
+            with open(src_file, "rb") as f:
+                src_bytes = f.read()
+
+            # Skip if destination is already identical
+            if os.path.exists(dst_file):
+                with open(dst_file, "rb") as f:
+                    if f.read() == src_bytes:
+                        continue
+
+            # Atomic write via temp file
+            tmp_file = dst_file + ".pivot_tmp"
+            with open(tmp_file, "wb") as f:
+                f.write(src_bytes)
+            shutil.move(tmp_file, dst_file)
+
+            rel = f"{domain}/pivot/{fname}"
+            _LOGGER.info("Pivot: installed/updated blueprint %s", rel)
+            updated.append(rel)
+
+    return updated
+
+
+# ---------------------------------------------------------------------------
 # Entry setup / teardown
 # ---------------------------------------------------------------------------
 
@@ -1031,29 +1094,8 @@ async def _sync_value_from_entity(
 # ---------------------------------------------------------------------------
 
 async def _install_blueprints(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Copy Pivot blueprint files into /config/blueprints/ and show a persistent notification."""
-    import shutil
-
-    integration_dir = os.path.dirname(__file__)
-    src_automation = os.path.join(integration_dir, "blueprints", "automation")
-    src_script = os.path.join(integration_dir, "blueprints", "script")
-
-    dest_automation = hass.config.path("blueprints", "automation", "pivot")
-    dest_script = hass.config.path("blueprints", "script", "pivot")
-
-    def _copy():
-        copied = []
-        for src, dest in [(src_automation, dest_automation), (src_script, dest_script)]:
-            src = os.path.realpath(src)
-            if os.path.isdir(src):
-                os.makedirs(dest, exist_ok=True)
-                for fname in os.listdir(src):
-                    if fname.endswith(".yaml"):
-                        shutil.copy2(os.path.join(src, fname), os.path.join(dest, fname))
-                        copied.append(fname)
-        return copied
-
-    copied = await hass.async_add_executor_job(_copy)
+    """Sync bundled blueprints and show a first-run persistent notification."""
+    copied = await hass.async_add_executor_job(_sync_blueprints, hass)
     suffix = entry.data[CONF_DEVICE_SUFFIX]
     friendly_name = entry.data[CONF_FRIENDLY_NAME]
 
