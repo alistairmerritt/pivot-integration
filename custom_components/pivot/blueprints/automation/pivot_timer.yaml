@@ -15,9 +15,9 @@ blueprint:
     **Before using this blueprint:**
     1. Enable the three timer helper entities on your Pivot device
        (`number.{suffix}_timer_duration`, `select.{suffix}_timer_state`, `text.{suffix}_timer_end`).
-    2. Set the bank entity for the chosen bank to exactly `timer`
-       (e.g. set `text.{suffix}_bank_3_entity` to `timer`). This tells Pivot that bank is reserved
-       for the timer — the knob is automatically disabled and the timer blueprint takes over.
+    2. Reserve a bank for the timer in the Pivot configure screen (**Settings → Devices & Services →
+       Pivot → your device → Configure → Bank Entity Assignment → Timer bank**). The blueprint
+       detects which bank is reserved automatically — no bank number input needed here.
     3. Set your desired duration on `number.{suffix}_timer_duration` (default: 25 minutes).
     4. Ensure the device has been reflashed to firmware v0.0.11 or later.
     5. For dashboard alarm dismissal, reflash to v0.0.13 or later (exposes the `timer_ringing` switch).
@@ -30,16 +30,6 @@ blueprint:
         All timer entity IDs are derived from this value.
       selector:
         text:
-
-    bank:
-      name: Bank Number
-      description: Which bank button controls the timer (1–4). The bank entity for this bank must be set to `timer`.
-      default: 1
-      selector:
-        number:
-          min: 1
-          max: 4
-          mode: box
 
     pivot_device:
       name: Pivot Device
@@ -79,7 +69,16 @@ blueprint:
 
 variables:
   suffix: !input suffix
-  bank: !input bank
+  # Derived from whichever bank entity is set to 'timer' — no manual input needed.
+  # Returns 0 if no timer bank is reserved yet (automation is inert until one is set).
+  bank: >
+    {% set ns = namespace(found=0) %}
+    {% for i in range(4) %}
+      {% if states('text.' ~ suffix ~ '_bank_' ~ i ~ '_entity') | lower == 'timer' and ns.found == 0 %}
+        {% set ns.found = i + 1 %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.found }}
   pivot_device: !input pivot_device
   finish_message: !input finish_message
   silent_mode: !input silent_mode
@@ -111,12 +110,11 @@ variables:
   dim_switch_entity: "switch.{{ suffix }}_dim_when_idle"
 
 trigger:
-  # Single press on the configured bank — start / pause / resume / dismiss
+  # Single press on this device — bank matching handled in the action
   - trigger: event
     event_type: pivot_button_press
     event_data:
       suffix: !input suffix
-      bank: !input bank
       press_type: single_press
     id: single_press
 
@@ -133,7 +131,6 @@ trigger:
     event_type: pivot_button_press
     event_data:
       suffix: !input suffix
-      bank: !input bank
       press_type: long_press
       bank_entity: timer
     id: long_press
@@ -149,6 +146,13 @@ trigger:
     id: duration_changed
 
 action:
+  # Exit immediately if no timer bank is reserved yet. This covers the edge case
+  # where the automation is created before a bank is assigned to 'timer' in the
+  # Pivot configure screen. The automation becomes active automatically once a
+  # bank is reserved — no blueprint changes needed.
+  - condition: template
+    value_template: "{{ bank | int(0) > 0 }}"
+
   # Discard stale single_press events — prevents queued presses from a
   # previous state firing back-to-back and causing spurious transitions.
   # Long press, gauge_sync, and duration_changed are exempt.
