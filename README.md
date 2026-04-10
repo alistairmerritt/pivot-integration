@@ -32,7 +32,6 @@ What happens next depends on the **setup mode** you choose:
 
 | Mode | What Pivot does |
 | --- | --- |
-| **Automatic** | Writes `pivot_{suffix}_bank_toggle.yaml` and `pivot_{suffix}_announcements.yaml`, adds a single `!include` line to your `scripts.yaml` and `automations.yaml`. Fully managed — created and removed automatically. |
 | **Blueprints** | Copies blueprint files into `/config/blueprints/`. You create the automations yourself from the HA UI. |
 | **Manual** | Pivot does not touch any of your YAML files. Bank control and event firing still work — use the fired events to build your own automations. |
 
@@ -62,7 +61,7 @@ Copy `custom_components/pivot` into your HA `custom_components` directory and re
 1. Settings → Devices & Services → Add Integration → search **Pivot**
 2. Select your VPE from the dropdown
 3. Confirm and enter the `device_suffix` from your firmware YAML
-4. Choose a setup mode and optionally configure announcements
+4. Choose a setup mode and optionally configure a TTS service and media player — these are shared across all blueprints automatically
 5. Go to **Configure** on the integration to assign entities to each bank
 
 For a detailed walkthrough see the [getting started guide](https://alistairmerritt.github.io/pivot/getting-started/).
