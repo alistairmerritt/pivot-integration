@@ -116,7 +116,7 @@ def get_number_definitions(suffix: str) -> list[dict]:
     return defs
 
 
-def get_switch_definitions(suffix: str, announcements_default: bool = True) -> list[dict]:
+def get_switch_definitions(suffix: str) -> list[dict]:
     """All switch entities for one Pivot device."""
     switches = [
         {
@@ -153,7 +153,7 @@ def get_switch_definitions(suffix: str, announcements_default: bool = True) -> l
             "entity_id": entity_id("switch", suffix, "announcements"),
             "name": "System Announcements",
             "icon": "mdi:bullhorn",
-            "initial": announcements_default,
+            "initial": True,
         },
         {
             "platform": "switch",
@@ -203,6 +203,38 @@ def get_text_definitions(suffix: str) -> list[dict]:
             "max_length": 255,
         }
         for bank in range(NUM_BANKS)
+    ]
+
+
+def get_config_text_definitions(suffix: str) -> list[dict]:
+    """Text entities storing the configured TTS and media player entity IDs.
+
+    Written from the config entry on every setup/reload so the Announce and
+    Timer blueprints can read them without needing TTS/media player as inputs.
+    """
+    return [
+        {
+            "platform": "text",
+            "key": "tts_entity",
+            "unique_id": entity_unique_id(suffix, "tts_entity"),
+            "entity_id": entity_id("text", suffix, "tts_entity"),
+            "name": "TTS Entity",
+            "icon": "mdi:text-to-speech",
+            "initial": "",
+            "max_length": 255,
+            "entity_category": "diagnostic",
+        },
+        {
+            "platform": "text",
+            "key": "media_player_entity",
+            "unique_id": entity_unique_id(suffix, "media_player_entity"),
+            "entity_id": entity_id("text", suffix, "media_player_entity"),
+            "name": "Media Player Entity",
+            "icon": "mdi:speaker",
+            "initial": "",
+            "max_length": 255,
+            "entity_category": "diagnostic",
+        },
     ]
 
 

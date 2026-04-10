@@ -17,7 +17,6 @@ from .const import (
     CONF_ESPHOME_DEVICE_NAME,
     CONF_DEVICE_SUFFIX,
     CONF_FRIENDLY_NAME,
-    CONF_ANNOUNCEMENTS,
     CONF_TTS_ENTITY,
     CONF_MEDIA_PLAYER_ENTITY,
     CONF_SATELLITE_ENTITY,
@@ -270,7 +269,6 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_ESPHOME_DEVICE_NAME: self._esphome_device_name,
                 CONF_DEVICE_SUFFIX: self._device_suffix,
                 CONF_FRIENDLY_NAME: self._friendly_name,
-                CONF_ANNOUNCEMENTS: user_input.get(CONF_ANNOUNCEMENTS, True),
                 CONF_TTS_ENTITY: user_input.get(CONF_TTS_ENTITY) or "",
                 CONF_MEDIA_PLAYER_ENTITY: user_input.get(CONF_MEDIA_PLAYER_ENTITY) or "",
                 CONF_MANAGEMENT_MODE: user_input.get(CONF_MANAGEMENT_MODE, MANAGEMENT_BLUEPRINTS),
@@ -297,7 +295,6 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="options",
             data_schema=vol.Schema({
                 vol.Required(CONF_MANAGEMENT_MODE, default=MANAGEMENT_BLUEPRINTS): mode_sel,
-                vol.Required(CONF_ANNOUNCEMENTS, default=True): bool,
                 vol.Optional(CONF_TTS_ENTITY): tts_sel,
                 vol.Optional(CONF_MEDIA_PLAYER_ENTITY): mp_sel,
             }),
@@ -336,7 +333,7 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
     """
     Options flow for Pivot:
-      1. General settings (management mode + announcements)
+      1. General settings (management mode + TTS/media player)
       2. Bank entity assignment
     """
 
@@ -356,7 +353,6 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
         if user_input is not None:
             new_mode = user_input.get(CONF_MANAGEMENT_MODE, MANAGEMENT_BLUEPRINTS)
             self._pending = {
-                CONF_ANNOUNCEMENTS: user_input[CONF_ANNOUNCEMENTS],
                 CONF_TTS_ENTITY: user_input.get(CONF_TTS_ENTITY) or "",
                 CONF_MEDIA_PLAYER_ENTITY: user_input.get(CONF_MEDIA_PLAYER_ENTITY) or "",
                 CONF_MANAGEMENT_MODE: new_mode,
@@ -392,13 +388,6 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
 
         schema_fields: dict = {
             vol.Required(CONF_MANAGEMENT_MODE, default=current_mode or MANAGEMENT_BLUEPRINTS): mode_sel,
-            vol.Required(
-                CONF_ANNOUNCEMENTS,
-                default=self.config_entry.options.get(
-                    CONF_ANNOUNCEMENTS,
-                    self.config_entry.data.get(CONF_ANNOUNCEMENTS, True),
-                ),
-            ): bool,
         }
         if current_tts:
             schema_fields[vol.Optional(CONF_TTS_ENTITY, default=current_tts)] = tts_sel

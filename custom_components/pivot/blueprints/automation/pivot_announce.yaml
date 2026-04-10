@@ -16,8 +16,10 @@ blueprint:
       Announce Value switch turned on.
 
 
-    Only the Device Suffix, Media Player, and TTS Engine are required — all
-    other entity IDs are derived automatically.
+    Only the Device Suffix is required — the TTS service and media player are
+    read automatically from the values you configured in the Pivot integration
+    settings. Update them at any time via Settings → Devices & Services → Pivot
+    → your device → Configure.
 
 
     Requires the Pivot integration and Home Assistant Cloud (Nabu Casa) or
@@ -27,30 +29,15 @@ blueprint:
     suffix:
       name: Device Suffix
       description: >
-        Your Pivot device suffix, e.g. `ha_voice_orange`. All Pivot entity
+        Your Pivot device suffix, e.g. `ha_voice_lounge`. All Pivot entity
         IDs are derived automatically from this value.
       selector:
         text:
 
-    media_player_entity:
-      name: Media Player
-      description: The VPE media player to speak through.
-      selector:
-        entity:
-          domain: media_player
-
-    tts_engine:
-      name: TTS Engine
-      description: TTS service entity to use.
-      default: tts.home_assistant_cloud
-      selector:
-        entity:
-          domain: tts
-
 variables:
   suffix: !input suffix
-  media_player_entity: !input media_player_entity
-  tts_engine: !input tts_engine
+  tts_engine: "{{ states('text.' ~ suffix ~ '_tts_entity') }}"
+  media_player_entity: "{{ states('text.' ~ suffix ~ '_media_player_entity') }}"
 
 trigger:
   # Bank changed (fired by the Pivot integration whenever the active bank changes)
@@ -92,6 +79,8 @@ action:
             value_template: "{{ is_state(announcements_switch, 'on') }}"
           - condition: template
             value_template: "{{ not is_state(mute_entity, 'on') }}"
+          - condition: template
+            value_template: "{{ tts_engine | length > 0 }}"
         sequence:
           - variables:
               bank_entity: "{{ trigger.event.data.bank_entity }}"
@@ -117,6 +106,8 @@ action:
             value_template: "{{ is_state(announcements_switch, 'on') }}"
           - condition: template
             value_template: "{{ not is_state(mute_entity, 'on') }}"
+          - condition: template
+            value_template: "{{ tts_engine | length > 0 }}"
         sequence:
           - variables:
               bank_entity: "{{ trigger.event.data.bank_entity }}"
@@ -136,6 +127,8 @@ action:
       - conditions:
           - condition: template
             value_template: "{{ trigger.id == 'knob_turn' }}"
+          - condition: template
+            value_template: "{{ tts_engine | length > 0 }}"
         sequence:
           - variables:
               bank_idx: "{{ trigger.event.data.bank | int - 1 }}"

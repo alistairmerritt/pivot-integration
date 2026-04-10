@@ -23,14 +23,12 @@
         "description": "Choose how Pivot handles the scripts and automations it may need.\n\n**Blueprint setup:** Recommended. Pivot copies blueprint files into your Home Assistant configuration. You then create the automations and script yourself from those blueprints in the Home Assistant UI — a one-time setup.\n\n**Manual setup:** Pivot does not create any files for you. You create your own scripts and automations from scratch using Pivot's events and entities. Advanced users only.",
         "data": {
           "management_mode": "Setup mode",
-          "announcements": "Speak bank and mode changes",
           "tts_entity": "Text-to-speech service",
           "media_player_entity": "Speaker"
         },
         "data_description": {
-          "announcements": "When turned on, Pivot says the current bank and mode when you switch banks or change control mode.",
-          "tts_entity": "Choose the service that creates the spoken announcement.",
-          "media_player_entity": "Choose the media player that will play the announcement."
+          "tts_entity": "Used by the Announce and Timer blueprints for spoken announcements. Set once here and all blueprints pick it up automatically.",
+          "media_player_entity": "The speaker used for spoken announcements. Set once here and all blueprints pick it up automatically."
         }
       },
       "banks_initial": {
@@ -44,7 +42,7 @@
           "bank_3_entity": "Bank 4"
         },
         "data_description": {
-          "timer_banks": "Timers are an optional add-on feature. If you want to use one, select which bank should act as a timer. That bank will be reserved for the Pivot — Timer blueprint and cannot be assigned to an entity. See the Pivot docs for timer setup instructions."
+          "timer_banks": "Timers are an optional add-on feature. If you want to use one, select which bank should act as a timer. That bank will be reserved for the Pivot — Timer blueprint — entity assignment is not used while a bank is set to timer, so any entity selected for that bank below will be ignored. See the Pivot docs for timer setup instructions."
         }
       }
     },
@@ -69,14 +67,12 @@
         "description": "Choose how Pivot handles the scripts and automations it may need.\n\n**Blueprint setup:** Recommended. Pivot copies blueprint files into your Home Assistant configuration. You then create the automations and script yourself from those blueprints in the Home Assistant UI — a one-time setup.\n\n**Manual setup:** Pivot does not create any files for you. You create your own scripts and automations from scratch using Pivot's events and entities. Advanced users only.",
         "data": {
           "management_mode": "Setup mode",
-          "announcements": "Speak bank and mode changes",
           "tts_entity": "Text-to-speech service",
           "media_player_entity": "Speaker"
         },
         "data_description": {
-          "announcements": "When turned on, Pivot says the current bank and mode when you switch banks or change control mode.",
-          "tts_entity": "Choose the service that creates the spoken announcement.",
-          "media_player_entity": "Choose the media player that will play the announcement."
+          "tts_entity": "Used by the Announce and Timer blueprints for spoken announcements. Set once here and all blueprints pick it up automatically.",
+          "media_player_entity": "The speaker used for spoken announcements. Set once here and all blueprints pick it up automatically."
         }
       },
       "banks": {
@@ -90,7 +86,7 @@
           "bank_3_entity": "Bank 4"
         },
         "data_description": {
-          "timer_banks": "Timers are an optional add-on feature. If you want to use one, select which bank should act as a timer. That bank will be reserved for the Pivot — Timer blueprint and cannot be assigned to an entity. See the Pivot docs for timer setup instructions."
+          "timer_banks": "Timers are an optional add-on feature. If you want to use one, select which bank should act as a timer. That bank will be reserved for the Pivot — Timer blueprint — entity assignment is not used while a bank is set to timer, so any entity selected for that bank below will be ignored. See the Pivot docs for timer setup instructions."
         }
       }
     }

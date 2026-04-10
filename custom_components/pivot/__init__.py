@@ -19,10 +19,10 @@ from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
     DOMAIN, CONF_DEVICE_ID, CONF_FRIENDLY_NAME, CONF_DEVICE_SUFFIX,
-    CONF_ANNOUNCEMENTS, CONF_TTS_ENTITY, CONF_MEDIA_PLAYER_ENTITY,
+    CONF_TTS_ENTITY, CONF_MEDIA_PLAYER_ENTITY,
     CONF_SATELLITE_ENTITY, CONF_MANAGEMENT_MODE,
     MANAGEMENT_MANAGED, MANAGEMENT_BLUEPRINTS, MANAGEMENT_NEITHER,
-    NUM_BANKS,
+    NUM_BANKS, entity_id as make_entity_id,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -215,6 +215,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     suffix = entry.data[CONF_DEVICE_SUFFIX]
     friendly_name = entry.data[CONF_FRIENDLY_NAME]
+
+    # Write configured TTS and media player entity IDs to their text entities so
+    # the Announce and Timer blueprints can read them without needing manual input.
+    _tts = entry.options.get(CONF_TTS_ENTITY) or entry.data.get(CONF_TTS_ENTITY) or ""
+    _mp = entry.options.get(CONF_MEDIA_PLAYER_ENTITY) or entry.data.get(CONF_MEDIA_PLAYER_ENTITY) or ""
+
+    async def _write_config_text_entities() -> None:
+        for _key, _val in [("tts_entity", _tts), ("media_player_entity", _mp)]:
+            _eid = make_entity_id("text", suffix, _key)
+            if hass.states.get(_eid) is not None:
+                try:
+                    await hass.services.async_call(
+                        "text", "set_value",
+                        {"entity_id": _eid, "value": _val},
+                        blocking=False,
+                    )
+                except Exception:
+                    pass
+
+    hass.async_create_task(_write_config_text_entities())
 
     # Set up internal listeners for bank control and bank sync
     unsubs = _setup_bank_control_listener(hass, entry)
