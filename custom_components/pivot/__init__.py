@@ -14,7 +14,7 @@ import os
 import time
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Context, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
@@ -1092,9 +1092,13 @@ async def _sync_value_from_entity(
             _LOGGER.warning("Pivot sync: NaN/inf synced_value for %s, skipping", entity_id)
             return
         synced_value = max(0.0, min(100.0, synced_value))
+        # Pass a context with a parent_id so _on_bank_value_changed's
+        # parent_id guard treats this as a non-physical change and does
+        # not fire pivot_knob_turn (which would trigger value announcements).
         await hass.services.async_call(
             "number", "set_value",
             {"entity_id": value_entity_id, "value": synced_value},
+            context=Context(parent_id="pivot_sync"),
         )
 
 
