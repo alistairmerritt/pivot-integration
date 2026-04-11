@@ -1,6 +1,6 @@
 # Pivot — HA Integration
 
-A HACS integration for Home Assistant that creates the required entities and, depending on setup mode, can also create the automation logic for Pivot firmware on the Home Assistant Voice Preview Edition (VPE).
+A HACS integration for Home Assistant that creates the required entities, handles button toggle natively, and installs blueprint files for optional announcement and timer automations for Pivot firmware on the Home Assistant Voice Preview Edition (VPE).
 
 > **New to Pivot?** Start at the [Pivot documentation site](https://alistairmerritt.github.io/pivot) for a full getting started guide, firmware setup, and troubleshooting.
 
@@ -29,14 +29,7 @@ When you add a Pivot device, the integration always:
 4. **Handles button toggle natively** — single press in Control Mode toggles or activates the active bank's entity automatically, no script required
 5. **Fires events** — `pivot_knob_turn` and `pivot_button_press` on the HA event bus for use in your own automations
 
-What happens next depends on the **setup mode** you choose:
-
-| Mode | What Pivot does |
-| --- | --- |
-| **Blueprints** | Copies blueprint files into `/config/blueprints/`. You create the automations yourself from the HA UI. |
-| **Manual** | Pivot does not touch any of your YAML files. Bank control and event firing still work — use the fired events to build your own automations. |
-
-The setup mode can be changed at any time from the integration's **Configure** menu.
+Blueprint files are installed automatically into `/config/blueprints/`. You create the automations yourself from the HA UI. Advanced users can also build their own automations from scratch using the fired events.
 
 ## Prerequisites
 
@@ -62,7 +55,7 @@ Copy `custom_components/pivot` into your HA `custom_components` directory and re
 1. Settings → Devices & Services → Add Integration → search **Pivot**
 2. Select your VPE from the dropdown
 3. Confirm and enter the `device_suffix` from your firmware YAML
-4. Choose a setup mode and optionally configure a TTS service and media player — these are shared across all blueprints automatically
+4. Optionally configure a TTS service and media player — these are shared across all blueprints automatically
 5. Go to **Configure** on the integration to assign entities to each bank
 
 For a detailed walkthrough see the [getting started guide](https://alistairmerritt.github.io/pivot/getting-started/).
