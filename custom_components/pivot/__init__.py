@@ -881,11 +881,14 @@ def _setup_button_event_listener(hass: HomeAssistant, entry: ConfigEntry):
             from homeassistant.helpers import device_registry as dr
             dev_reg = dr.async_get(hass)
             for device in dev_reg.devices.values():
-                if any(
-                    identifier[0] == "esphome" and esphome_name in identifier[1]
-                    for identifier in device.identifiers
-                ):
-                    device_id = device.id
+                for eid in device.config_entries:
+                    cfg = hass.config_entries.async_get_entry(eid)
+                    if cfg and cfg.domain == "esphome":
+                        host = (cfg.data.get("name") or cfg.data.get("host") or "").removesuffix(".local").strip()
+                        if host == esphome_name:
+                            device_id = device.id
+                            break
+                if device_id:
                     break
         if not device_id:
             _LOGGER.warning(
