@@ -907,6 +907,8 @@ def _setup_button_event_listener(hass: HomeAssistant, entry: ConfigEntry):
         )
         return None
 
+    _LOGGER.debug("Pivot: watching %s for button presses on %s", button_entity_id, suffix)
+
     @callback
     def _on_button_press(event) -> None:
         new_state = event.data.get("new_state")
@@ -917,10 +919,17 @@ def _setup_button_event_listener(hass: HomeAssistant, entry: ConfigEntry):
         # ESPHome device comes back online, which would look like a real press.
         old_state = event.data.get("old_state")
         if old_state is None or old_state.state in ("unavailable", "unknown"):
+            _LOGGER.debug(
+                "Pivot: skipping %s button event for %s — reconnect transition "
+                "(old_state=%s)",
+                button_entity_id, suffix,
+                old_state.state if old_state else None,
+            )
             return
 
         press_type = new_state.attributes.get("event_type")
         if not press_type:
+            _LOGGER.debug("Pivot: %s fired with no event_type — ignoring", button_entity_id)
             return
 
         # Resolve active bank and assigned entity
@@ -939,6 +948,11 @@ def _setup_button_event_listener(hass: HomeAssistant, entry: ConfigEntry):
 
         control_mode_state = hass.states.get(f"switch.{suffix}_control_mode")
         control_mode = control_mode_state.state == "on" if control_mode_state else False
+
+        _LOGGER.debug(
+            "Pivot: %s press_type=%s control_mode=%s bank=%s bank_entity=%s",
+            suffix, press_type, control_mode, bank_idx + 1, bank_entity or "(none)",
+        )
 
         # Perform toggle natively — no blueprint required.
         if press_type == "single_press" and control_mode and bank_entity:
