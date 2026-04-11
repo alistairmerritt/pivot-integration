@@ -20,9 +20,8 @@
       },
       "options": {
         "title": "Settings",
-        "description": "Choose how Pivot handles the scripts and automations it may need.\n\n**Blueprint setup:** Recommended. Pivot copies blueprint files into your Home Assistant configuration. You then create the automations and script yourself from those blueprints in the Home Assistant UI — a one-time setup.\n\n**Manual setup:** Pivot does not create any files for you. You create your own scripts and automations from scratch using Pivot's events and entities. Advanced users only.",
+        "description": "Optionally configure a TTS service and speaker for spoken announcements. These are shared across all blueprints automatically.\n\n> **Advanced:** You can ignore blueprints entirely and build your own automations using Pivot's events. See the Integration page for details.",
         "data": {
-          "management_mode": "Setup mode",
           "tts_entity": "Text-to-speech service",
           "media_player_entity": "Speaker"
         },
@@ -64,9 +63,8 @@
     "step": {
       "init": {
         "title": "Settings",
-        "description": "Choose how Pivot handles the scripts and automations it may need.\n\n**Blueprint setup:** Recommended. Pivot copies blueprint files into your Home Assistant configuration. You then create the automations and script yourself from those blueprints in the Home Assistant UI — a one-time setup.\n\n**Manual setup:** Pivot does not create any files for you. You create your own scripts and automations from scratch using Pivot's events and entities. Advanced users only.",
+        "description": "Optionally configure a TTS service and speaker for spoken announcements. These are shared across all blueprints automatically.\n\n> **Advanced:** You can ignore blueprints entirely and build your own automations using Pivot's events. See the Integration page for details.",
         "data": {
-          "management_mode": "Setup mode",
           "tts_entity": "Text-to-speech service",
           "media_player_entity": "Speaker"
         },

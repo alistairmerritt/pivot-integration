@@ -21,9 +21,7 @@ from .const import (
     CONF_MEDIA_PLAYER_ENTITY,
     CONF_SATELLITE_ENTITY,
     CONF_MANAGEMENT_MODE,
-    MANAGEMENT_MANAGED,
     MANAGEMENT_BLUEPRINTS,
-    MANAGEMENT_NEITHER,
     NUM_BANKS,
     BANK_NAMES,
     make_suffix,
@@ -271,7 +269,7 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_FRIENDLY_NAME: self._friendly_name,
                 CONF_TTS_ENTITY: user_input.get(CONF_TTS_ENTITY) or "",
                 CONF_MEDIA_PLAYER_ENTITY: user_input.get(CONF_MEDIA_PLAYER_ENTITY) or "",
-                CONF_MANAGEMENT_MODE: user_input.get(CONF_MANAGEMENT_MODE, MANAGEMENT_BLUEPRINTS),
+                CONF_MANAGEMENT_MODE: MANAGEMENT_BLUEPRINTS,
             }
             return await self.async_step_banks_initial()
 
@@ -281,20 +279,10 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         mp_sel = selector.EntitySelector(
             selector.EntitySelectorConfig(domain="media_player", multiple=False)
         )
-        mode_sel = selector.SelectSelector(
-            selector.SelectSelectorConfig(
-                options=[
-                    selector.SelectOptionDict(value=MANAGEMENT_BLUEPRINTS, label="Blueprint setup"),
-                    selector.SelectOptionDict(value=MANAGEMENT_NEITHER, label="Manual setup"),
-                ],
-                mode=selector.SelectSelectorMode.LIST,
-            )
-        )
 
         return self.async_show_form(
             step_id="options",
             data_schema=vol.Schema({
-                vol.Required(CONF_MANAGEMENT_MODE, default=MANAGEMENT_BLUEPRINTS): mode_sel,
                 vol.Optional(CONF_TTS_ENTITY): tts_sel,
                 vol.Optional(CONF_MEDIA_PLAYER_ENTITY): mp_sel,
             }),
@@ -341,21 +329,11 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Step 1: General settings."""
-        current_mode = (
-            self.config_entry.options.get(CONF_MANAGEMENT_MODE)
-            or self.config_entry.data.get(CONF_MANAGEMENT_MODE)
-            or MANAGEMENT_BLUEPRINTS
-        )
-        # Treat legacy managed mode as blueprints
-        if current_mode == MANAGEMENT_MANAGED:
-            current_mode = MANAGEMENT_BLUEPRINTS
-
         if user_input is not None:
-            new_mode = user_input.get(CONF_MANAGEMENT_MODE, MANAGEMENT_BLUEPRINTS)
             self._pending = {
                 CONF_TTS_ENTITY: user_input.get(CONF_TTS_ENTITY) or "",
                 CONF_MEDIA_PLAYER_ENTITY: user_input.get(CONF_MEDIA_PLAYER_ENTITY) or "",
-                CONF_MANAGEMENT_MODE: new_mode,
+                CONF_MANAGEMENT_MODE: MANAGEMENT_BLUEPRINTS,
             }
             return await self.async_step_banks()
 
@@ -364,15 +342,6 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
         )
         mp_sel = selector.EntitySelector(
             selector.EntitySelectorConfig(domain="media_player", multiple=False)
-        )
-        mode_sel = selector.SelectSelector(
-            selector.SelectSelectorConfig(
-                options=[
-                    selector.SelectOptionDict(value=MANAGEMENT_BLUEPRINTS, label="Blueprint setup"),
-                    selector.SelectOptionDict(value=MANAGEMENT_NEITHER, label="Manual setup"),
-                ],
-                mode=selector.SelectSelectorMode.LIST,
-            )
         )
 
         current_tts = (
@@ -386,9 +355,7 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
             or None
         )
 
-        schema_fields: dict = {
-            vol.Required(CONF_MANAGEMENT_MODE, default=current_mode or MANAGEMENT_BLUEPRINTS): mode_sel,
-        }
+        schema_fields: dict = {}
         if current_tts:
             schema_fields[vol.Optional(CONF_TTS_ENTITY, default=current_tts)] = tts_sel
         else:
