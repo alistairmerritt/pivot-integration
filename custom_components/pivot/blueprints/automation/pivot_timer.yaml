@@ -163,6 +163,8 @@ action:
           - condition: template
             value_template: "{{ trigger.id == 'single_press' }}"
           - condition: template
+            value_template: "{{ trigger.event.data.bank | int == bank | int }}"
+          - condition: template
             value_template: "{{ states(bank_entity_text_entity) | lower == 'timer' }}"
         sequence:
           - choose:
