@@ -19,7 +19,7 @@ from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
     DOMAIN, CONF_DEVICE_ID, CONF_ESPHOME_DEVICE_NAME, CONF_FRIENDLY_NAME, CONF_DEVICE_SUFFIX,
-    CONF_TTS_ENTITY, CONF_MEDIA_PLAYER_ENTITY,
+    CONF_ANNOUNCEMENTS, CONF_TTS_ENTITY, CONF_MEDIA_PLAYER_ENTITY,
     CONF_SATELLITE_ENTITY, CONF_MANAGEMENT_MODE,
     MANAGEMENT_MANAGED, MANAGEMENT_BLUEPRINTS, MANAGEMENT_NEITHER,
     NUM_BANKS, entity_id as make_entity_id,
@@ -220,6 +220,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # the Announce and Timer blueprints can read them without needing manual input.
     _tts = entry.options.get(CONF_TTS_ENTITY) or entry.data.get(CONF_TTS_ENTITY) or ""
     _mp = entry.options.get(CONF_MEDIA_PLAYER_ENTITY) or entry.data.get(CONF_MEDIA_PLAYER_ENTITY) or ""
+    _announce_enabled = bool(
+        entry.options.get(CONF_ANNOUNCEMENTS, entry.data.get(CONF_ANNOUNCEMENTS, True))
+    )
 
     async def _write_config_text_entities() -> None:
         for _key, _val in [("tts_entity", _tts), ("media_player_entity", _mp)]:
@@ -236,8 +239,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.async_create_task(_write_config_text_entities())
 
+    # Debounce cancel handles for native value announcements (bank_idx -> cancel callable)
+    _announce_cancels: dict[int, object] = {}
+    hass.data[DOMAIN][entry.entry_id + "_announce_cancels"] = _announce_cancels
+
     # Set up internal listeners for bank control and bank sync
-    unsubs = _setup_bank_control_listener(hass, entry)
+    unsubs = _setup_bank_control_listener(
+        hass, entry,
+        tts_entity=_tts,
+        media_player=_mp,
+        announce_enabled=_announce_enabled,
+        announce_cancels=_announce_cancels,
+    )
     hass.data[DOMAIN][entry.entry_id + "_unsub"] = unsubs
 
     # Zero bank values for passive domains on startup so the firmware cache
@@ -310,6 +323,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Cancel mirror listeners
     for unsub in hass.data[DOMAIN].pop(entry.entry_id + "_unsub_mirror", []):
         unsub()
+
+    # Cancel any pending value-announcement debounce timers
+    for cancel in hass.data[DOMAIN].pop(entry.entry_id + "_announce_cancels", {}).values():
+        cancel()
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
@@ -480,6 +497,64 @@ def _setup_mirror_listeners(hass, entry) -> list:
     return unsubs
 
 # ---------------------------------------------------------------------------
+# Announcement helpers
+# ---------------------------------------------------------------------------
+
+def _format_value_announcement(hass: HomeAssistant, bank_entity: str, bank_value: float) -> str | None:
+    """Build a TTS message string for a value announcement.
+
+    Reads the current entity state at call time (post-debounce) so climate and
+    cover report their actual attribute values rather than the knob percentage.
+    """
+    if not bank_entity or "." not in bank_entity:
+        return None
+    domain = bank_entity.split(".")[0]
+    if domain not in ("light", "fan", "climate", "media_player", "cover", "number"):
+        return None
+    entity_state = hass.states.get(bank_entity)
+    if entity_state is None or entity_state.state in ("unavailable", "unknown"):
+        return None
+    if domain == "climate":
+        temp = entity_state.attributes.get("temperature")
+        if temp is None:
+            return None
+        return f"Temperature {round(float(temp))} degrees."
+    if domain == "cover":
+        pos = entity_state.attributes.get("current_position")
+        if pos is None:
+            return None
+        return f"{round(float(pos))} percent open."
+    if domain == "light":
+        return f"Brightness {round(bank_value)} percent."
+    if domain == "media_player":
+        return f"Volume {round(bank_value)} percent."
+    if domain == "fan":
+        return f"Speed {round(bank_value)} percent."
+    if domain == "number":
+        unit = entity_state.attributes.get("unit_of_measurement") or ""
+        return f"Set to {entity_state.state}{' ' + unit if unit else ''}."
+    return None
+
+
+async def _do_tts(hass: HomeAssistant, tts_entity: str, media_player: str, message: str) -> None:
+    """Call tts.speak with the given message."""
+    if not tts_entity or not media_player or not message:
+        return
+    try:
+        await hass.services.async_call(
+            "tts", "speak",
+            {
+                "entity_id": tts_entity,
+                "media_player_entity_id": media_player,
+                "message": message.strip(),
+            },
+            blocking=False,
+        )
+    except Exception:
+        _LOGGER.debug("Pivot: TTS call failed (entity=%s message=%r)", tts_entity, message)
+
+
+# ---------------------------------------------------------------------------
 # Bank control listener
 #
 # Two triggers handled internally:
@@ -496,10 +571,16 @@ def _setup_mirror_listeners(hass, entry) -> list:
 # ---------------------------------------------------------------------------
 
 def _setup_bank_control_listener(
-    hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant, entry: ConfigEntry,
+    tts_entity: str = "",
+    media_player: str = "",
+    announce_enabled: bool = False,
+    announce_cancels: dict | None = None,
 ) -> list:
     """Register state change listeners. Returns list of unsubscribe callbacks."""
     suffix = entry.data[CONF_DEVICE_SUFFIX]
+    if announce_cancels is None:
+        announce_cancels = {}
 
     bank_value_entity_ids = [
         f"number.{suffix}_bank_{bank}_value" for bank in range(NUM_BANKS)
@@ -631,6 +712,34 @@ def _setup_bank_control_listener(
             },
         )
 
+        # Native value announcement — debounced 600 ms (matches blueprint behaviour).
+        # Cancels and restarts on each knob turn so only the settled value is spoken.
+        if announce_enabled and tts_entity and media_player and "." in bank_entity:
+            ann_domain = bank_entity.split(".")[0]
+            if ann_domain in ("light", "fan", "climate", "media_player", "cover", "number"):
+                ann_switch = hass.states.get(f"switch.{suffix}_bank_{bank_idx}_announce_value")
+                if ann_switch and ann_switch.state == "on":
+                    # Cancel any existing debounce for this bank
+                    existing = announce_cancels.pop(bank_idx, None)
+                    if existing:
+                        existing()
+
+                    _be = bank_entity
+                    _bv = value
+                    _bi = bank_idx
+
+                    @callback
+                    def _fire_value_announce(_now=None, be=_be, bv=_bv, bi=_bi):
+                        announce_cancels.pop(bi, None)
+                        mute = hass.states.get(f"switch.{suffix}_mute_announcements")
+                        if mute and mute.state == "on":
+                            return
+                        msg = _format_value_announcement(hass, be, bv)
+                        if msg:
+                            hass.async_create_task(_do_tts(hass, tts_entity, media_player, msg))
+
+                    announce_cancels[bank_idx] = hass.async_call_later(0.6, _fire_value_announce)
+
     @callback
     def _on_active_bank_changed(event) -> None:
         """Sync bank value FROM entity state when user switches banks."""
@@ -666,6 +775,25 @@ def _setup_bank_control_listener(
                 "bank_entity": bank_entity,
             },
         )
+
+        # Cancel any pending value-announcement debounces on bank switch
+        # (mirrors mode: restart behaviour in the blueprint)
+        for _bi, _cancel in list(announce_cancels.items()):
+            announce_cancels.pop(_bi, None)
+            _cancel()
+
+        # Native bank change announcement
+        if (announce_enabled and tts_entity and media_player
+                and bank_entity and "." in bank_entity):
+            _cm = hass.states.get(f"switch.{suffix}_control_mode")
+            _ann = hass.states.get(f"switch.{suffix}_announcements")
+            _mute = hass.states.get(f"switch.{suffix}_mute_announcements")
+            if (_cm and _cm.state == "on"
+                    and _ann and _ann.state == "on"
+                    and not (_mute and _mute.state == "on")):
+                _es = hass.states.get(bank_entity)
+                _name = (_es.attributes.get("friendly_name") if _es else None) or bank_entity
+                hass.async_create_task(_do_tts(hass, tts_entity, media_player, _name))
 
         if not bank_entity:
             return
@@ -832,7 +960,12 @@ def _setup_bank_control_listener(
     )
 
     # Button event listener — performs toggle natively and fires pivot_button_press
-    unsub_button = _setup_button_event_listener(hass, entry)
+    unsub_button = _setup_button_event_listener(
+        hass, entry,
+        tts_entity=tts_entity,
+        media_player=media_player,
+        announce_enabled=announce_enabled,
+    )
 
     return (
         [unsub_values, unsub_active, unsub_assignments]
@@ -869,7 +1002,12 @@ async def _do_bank_toggle(hass: HomeAssistant, suffix: str, bank_entity: str) ->
 # Button event listener — fires pivot_button_press for user automations
 # ---------------------------------------------------------------------------
 
-def _setup_button_event_listener(hass: HomeAssistant, entry: ConfigEntry):
+def _setup_button_event_listener(
+    hass: HomeAssistant, entry: ConfigEntry,
+    tts_entity: str = "",
+    media_player: str = "",
+    announce_enabled: bool = False,
+):
     """Listen for VPE button press events and fire pivot_button_press on the HA bus."""
     suffix = entry.data[CONF_DEVICE_SUFFIX]
     device_id = entry.data.get(CONF_DEVICE_ID)
@@ -968,6 +1106,18 @@ def _setup_button_event_listener(hass: HomeAssistant, entry: ConfigEntry):
                 "control_mode": control_mode,
             },
         )
+
+        # Native triple press re-announcement
+        if (press_type == "triple_press"
+                and announce_enabled and tts_entity and media_player
+                and bank_entity and "." in bank_entity):
+            _ann = hass.states.get(f"switch.{suffix}_announcements")
+            _mute = hass.states.get(f"switch.{suffix}_mute_announcements")
+            if (_ann and _ann.state == "on"
+                    and not (_mute and _mute.state == "on")):
+                _es = hass.states.get(bank_entity)
+                _name = (_es.attributes.get("friendly_name") if _es else None) or bank_entity
+                hass.async_create_task(_do_tts(hass, tts_entity, media_player, _name))
 
     return async_track_state_change_event(hass, [button_entity_id], _on_button_press)
 

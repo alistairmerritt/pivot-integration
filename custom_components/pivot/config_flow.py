@@ -17,6 +17,7 @@ from .const import (
     CONF_ESPHOME_DEVICE_NAME,
     CONF_DEVICE_SUFFIX,
     CONF_FRIENDLY_NAME,
+    CONF_ANNOUNCEMENTS,
     CONF_TTS_ENTITY,
     CONF_MEDIA_PLAYER_ENTITY,
     CONF_SATELLITE_ENTITY,
@@ -267,6 +268,7 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_ESPHOME_DEVICE_NAME: self._esphome_device_name,
                 CONF_DEVICE_SUFFIX: self._device_suffix,
                 CONF_FRIENDLY_NAME: self._friendly_name,
+                CONF_ANNOUNCEMENTS: user_input.get(CONF_ANNOUNCEMENTS, True),
                 CONF_TTS_ENTITY: user_input.get(CONF_TTS_ENTITY) or "",
                 CONF_MEDIA_PLAYER_ENTITY: user_input.get(CONF_MEDIA_PLAYER_ENTITY) or "",
                 CONF_MANAGEMENT_MODE: MANAGEMENT_BLUEPRINTS,
@@ -285,6 +287,7 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({
                 vol.Optional(CONF_TTS_ENTITY): tts_sel,
                 vol.Optional(CONF_MEDIA_PLAYER_ENTITY): mp_sel,
+                vol.Optional(CONF_ANNOUNCEMENTS, default=True): selector.BooleanSelector(),
             }),
             description_placeholders={
                 "device_name": self._friendly_name,
@@ -331,6 +334,7 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
         """Step 1: General settings."""
         if user_input is not None:
             self._pending = {
+                CONF_ANNOUNCEMENTS: user_input.get(CONF_ANNOUNCEMENTS, True),
                 CONF_TTS_ENTITY: user_input.get(CONF_TTS_ENTITY) or "",
                 CONF_MEDIA_PLAYER_ENTITY: user_input.get(CONF_MEDIA_PLAYER_ENTITY) or "",
                 CONF_MANAGEMENT_MODE: MANAGEMENT_BLUEPRINTS,
@@ -354,6 +358,10 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
             or self.config_entry.data.get(CONF_MEDIA_PLAYER_ENTITY)
             or None
         )
+        current_ann = bool(
+            self.config_entry.options.get(CONF_ANNOUNCEMENTS,
+                self.config_entry.data.get(CONF_ANNOUNCEMENTS, True))
+        )
 
         schema_fields: dict = {}
         if current_tts:
@@ -364,6 +372,7 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
             schema_fields[vol.Optional(CONF_MEDIA_PLAYER_ENTITY, default=current_mp)] = mp_sel
         else:
             schema_fields[vol.Optional(CONF_MEDIA_PLAYER_ENTITY)] = mp_sel
+        schema_fields[vol.Optional(CONF_ANNOUNCEMENTS, default=current_ann)] = selector.BooleanSelector()
 
         return self.async_show_form(
             step_id="init",

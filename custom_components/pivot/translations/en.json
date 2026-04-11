@@ -20,14 +20,16 @@
       },
       "options": {
         "title": "Settings",
-        "description": "Optionally configure a TTS service and speaker for spoken announcements. These are shared across all blueprints automatically.\n\n> **Advanced:** You can ignore blueprints entirely and build your own automations using Pivot's events. See the Integration page for details.",
+        "description": "Optionally configure a text-to-speech service and speaker for spoken announcements. When enabled, Pivot will announce bank names when you switch banks, re-announce on triple press, and speak entity values after the knob settles. These settings can be changed at any time.",
         "data": {
           "tts_entity": "Text-to-speech service",
-          "media_player_entity": "Speaker"
+          "media_player_entity": "Speaker",
+          "announcements": "Enable spoken announcements"
         },
         "data_description": {
-          "tts_entity": "Used by the Announce and Timer blueprints for spoken announcements. Set once here and all blueprints pick it up automatically.",
-          "media_player_entity": "The speaker used for spoken announcements. Set once here and all blueprints pick it up automatically."
+          "tts_entity": "Used for bank change, triple press, and value announcements. Also shared with the Timer blueprint automatically.",
+          "media_player_entity": "The speaker used for all spoken announcements.",
+          "announcements": "When on, Pivot announces bank names on bank change and triple press, and speaks entity values after the knob settles (per-bank Announce Value switches provide further control). Requires TTS and speaker to be configured."
         }
       },
       "banks_initial": {
@@ -63,14 +65,16 @@
     "step": {
       "init": {
         "title": "Settings",
-        "description": "Optionally configure a TTS service and speaker for spoken announcements. These are shared across all blueprints automatically.\n\n> **Advanced:** You can ignore blueprints entirely and build your own automations using Pivot's events. See the Integration page for details.",
+        "description": "Optionally configure a text-to-speech service and speaker for spoken announcements. When enabled, Pivot will announce bank names when you switch banks, re-announce on triple press, and speak entity values after the knob settles. These settings can be changed at any time.",
         "data": {
           "tts_entity": "Text-to-speech service",
-          "media_player_entity": "Speaker"
+          "media_player_entity": "Speaker",
+          "announcements": "Enable spoken announcements"
         },
         "data_description": {
-          "tts_entity": "Used by the Announce and Timer blueprints for spoken announcements. Set once here and all blueprints pick it up automatically.",
-          "media_player_entity": "The speaker used for spoken announcements. Set once here and all blueprints pick it up automatically."
+          "tts_entity": "Used for bank change, triple press, and value announcements. Also shared with the Timer blueprint automatically.",
+          "media_player_entity": "The speaker used for all spoken announcements.",
+          "announcements": "When on, Pivot announces bank names on bank change and triple press, and speaks entity values after the knob settles (per-bank Announce Value switches provide further control). Requires TTS and speaker to be configured."
         }
       },
       "banks": {
