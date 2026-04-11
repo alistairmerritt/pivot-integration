@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
-    DOMAIN, CONF_DEVICE_ID, CONF_FRIENDLY_NAME, CONF_DEVICE_SUFFIX,
+    DOMAIN, CONF_DEVICE_ID, CONF_ESPHOME_DEVICE_NAME, CONF_FRIENDLY_NAME, CONF_DEVICE_SUFFIX,
     CONF_TTS_ENTITY, CONF_MEDIA_PLAYER_ENTITY,
     CONF_SATELLITE_ENTITY, CONF_MANAGEMENT_MODE,
     MANAGEMENT_MANAGED, MANAGEMENT_BLUEPRINTS, MANAGEMENT_NEITHER,
@@ -874,12 +874,34 @@ def _setup_button_event_listener(hass: HomeAssistant, entry: ConfigEntry):
     suffix = entry.data[CONF_DEVICE_SUFFIX]
     device_id = entry.data.get(CONF_DEVICE_ID)
 
+    # Older config entries may not have device_id stored — look it up by ESPHome device name.
     if not device_id:
-        return None
+        esphome_name = entry.data.get(CONF_ESPHOME_DEVICE_NAME)
+        if esphome_name:
+            from homeassistant.helpers import device_registry as dr
+            dev_reg = dr.async_get(hass)
+            for device in dev_reg.devices.values():
+                if any(
+                    identifier[0] == "esphome" and esphome_name in identifier[1]
+                    for identifier in device.identifiers
+                ):
+                    device_id = device.id
+                    break
+        if not device_id:
+            _LOGGER.warning(
+                "Pivot: no device_id for %s — button toggle will not work. "
+                "Re-add the integration entry to fix this.",
+                suffix,
+            )
+            return None
 
     button_entity_id = _get_button_event_entity(hass, device_id)
     if not button_entity_id:
-        _LOGGER.debug("Pivot: no button event entity found for %s — pivot_button_press will not fire", suffix)
+        _LOGGER.warning(
+            "Pivot: no button press event entity found for %s (device_id=%s) — "
+            "button toggle will not work. Ensure the device is running Pivot firmware v0.0.15+.",
+            suffix, device_id,
+        )
         return None
 
     @callback
@@ -1169,15 +1191,21 @@ async def _remove_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) ->
 
 
 def _get_button_event_entity(hass: HomeAssistant, device_id: str) -> str | None:
-    """Find the button press event entity for a VPE device."""
+    """Find the button press event entity for a VPE device.
+
+    Matches the event entity with device_class 'button' on the ESPHome device.
+    Falls back to any event-domain entity on the device if device_class is absent.
+    """
     from homeassistant.helpers import entity_registry as er
     ent_reg = er.async_get(hass)
+    fallback = None
     for entity in ent_reg.entities.values():
-        if (entity.device_id == device_id
-                and entity.domain == "event"
-                and "button" in (entity.entity_id or "").lower()):
+        if entity.device_id != device_id or entity.domain != "event":
+            continue
+        if (entity.original_device_class or entity.device_class) == "button":
             return entity.entity_id
-    return None
+        fallback = entity.entity_id  # any event entity on this device
+    return fallback
 
 
 async def _remove_announcements_automation(hass: HomeAssistant, entry: ConfigEntry) -> None:
