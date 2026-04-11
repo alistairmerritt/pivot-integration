@@ -888,6 +888,12 @@ def _setup_button_event_listener(hass: HomeAssistant, entry: ConfigEntry):
         if new_state is None:
             return
 
+        # Skip reconnect transitions — entity restores last state when the
+        # ESPHome device comes back online, which would look like a real press.
+        old_state = event.data.get("old_state")
+        if old_state is None or old_state.state in ("unavailable", "unknown"):
+            return
+
         press_type = new_state.attributes.get("event_type")
         if not press_type:
             return
