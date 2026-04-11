@@ -783,16 +783,18 @@ def _setup_bank_control_listener(
             _cancel()
 
         # Native bank change announcement
-        if (announce_enabled and tts_entity and media_player
-                and bank_entity and "." in bank_entity):
+        if announce_enabled and tts_entity and media_player and bank_entity:
             _cm = hass.states.get(f"switch.{suffix}_control_mode")
             _ann = hass.states.get(f"switch.{suffix}_announcements")
             _mute = hass.states.get(f"switch.{suffix}_mute_announcements")
             if (_cm and _cm.state == "on"
                     and _ann and _ann.state == "on"
                     and not (_mute and _mute.state == "on")):
-                _es = hass.states.get(bank_entity)
-                _name = (_es.attributes.get("friendly_name") if _es else None) or bank_entity
+                if bank_entity == "timer":
+                    _name = "Timer"
+                else:
+                    _es = hass.states.get(bank_entity)
+                    _name = (_es.attributes.get("friendly_name") if _es else None) or bank_entity
                 hass.async_create_task(_do_tts(hass, tts_entity, media_player, _name))
 
         if not bank_entity:
