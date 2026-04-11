@@ -26,7 +26,8 @@ When you add a Pivot device, the integration always:
 1. **Creates all entities** — number, switch, text, binary sensor, and light entities attached to your ESPHome device
 2. **Starts bank control** — listens internally for knob turns and applies values to assigned entities
 3. **Syncs with your assigned entity** — when you switch banks, the knob value snaps to the assigned entity's current state
-4. **Fires events** — `pivot_knob_turn` and `pivot_button_press` on the HA event bus for use in your own automations
+4. **Handles button toggle natively** — single press in Control Mode toggles or activates the active bank's entity automatically, no script required
+5. **Fires events** — `pivot_knob_turn` and `pivot_button_press` on the HA event bus for use in your own automations
 
 What happens next depends on the **setup mode** you choose:
 
