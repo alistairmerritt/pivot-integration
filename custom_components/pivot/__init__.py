@@ -15,7 +15,7 @@ import time
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Context, HomeAssistant, callback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_track_state_change_event, async_call_later
 
 from .const import (
     DOMAIN, CONF_DEVICE_ID, CONF_ESPHOME_DEVICE_NAME, CONF_FRIENDLY_NAME, CONF_DEVICE_SUFFIX,
@@ -714,16 +714,10 @@ def _setup_bank_control_listener(
 
         # Native value announcement — debounced 600 ms (matches blueprint behaviour).
         # Cancels and restarts on each knob turn so only the settled value is spoken.
-        _LOGGER.warning(
-            "Pivot announce-value debug: announce_enabled=%s tts=%r mp=%r bank_entity=%r",
-            announce_enabled, tts_entity, media_player, bank_entity,
-        )
         if announce_enabled and tts_entity and media_player and "." in bank_entity:
             ann_domain = bank_entity.split(".")[0]
-            _LOGGER.warning("Pivot announce-value debug: domain=%r", ann_domain)
             if ann_domain in ("light", "fan", "climate", "media_player", "cover", "number"):
                 ann_switch = hass.states.get(f"switch.{suffix}_bank_{bank_idx}_announce_value")
-                _LOGGER.warning("Pivot announce-value debug: ann_switch=%r", ann_switch.state if ann_switch else None)
                 if ann_switch and ann_switch.state == "on":
                     # Cancel any existing debounce for this bank
                     existing = announce_cancels.pop(bank_idx, None)
@@ -736,18 +730,15 @@ def _setup_bank_control_listener(
 
                     @callback
                     def _fire_value_announce(_now=None, be=_be, bv=_bv, bi=_bi):
-                        _LOGGER.warning("Pivot announce-value debug: _fire_value_announce called be=%r bv=%r", be, bv)
                         announce_cancels.pop(bi, None)
                         mute = hass.states.get(f"switch.{suffix}_mute_announcements")
                         if mute and mute.state == "on":
                             return
                         msg = _format_value_announcement(hass, be, bv)
-                        _LOGGER.warning("Pivot announce-value debug: msg=%r", msg)
                         if msg:
                             hass.async_create_task(_do_tts(hass, tts_entity, media_player, msg))
 
-                    announce_cancels[bank_idx] = hass.async_call_later(0.6, _fire_value_announce)
-                    _LOGGER.warning("Pivot announce-value debug: debounce scheduled for bank %d", bank_idx)
+                    announce_cancels[bank_idx] = async_call_later(hass, 0.6, _fire_value_announce)
 
     @callback
     def _on_active_bank_changed(event) -> None:
