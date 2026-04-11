@@ -3,8 +3,8 @@
 Handles all runtime logic for Pivot devices:
 - Bank control: listens for bank value changes and applies them to assigned entities
 - Bank sync: when active bank changes, reads entity state and syncs value back
-- Bank toggle: fires pivot_button_press events; the bank-toggle script is provided
-  as a blueprint that users install once via the HA UI
+- Bank toggle: performed natively on single_press in control mode; also fires
+  pivot_button_press events for user automations
 """
 from __future__ import annotations
 
@@ -831,19 +831,38 @@ def _setup_bank_control_listener(
         _on_bank_assignment_changed,
     )
 
-    # Button event listener — fires pivot_button_press for user automations
+    # Button event listener — performs toggle natively and fires pivot_button_press
     unsub_button = _setup_button_event_listener(hass, entry)
-
-    # Bank-toggle listener — fires single_press (with dedup so reflashed firmware
-    # and the script path never both fire for the same physical press)
-    unsub_bank_toggle = _setup_bank_toggle_listener(hass, entry)
 
     return (
         [unsub_values, unsub_active, unsub_assignments]
         + ([unsub_button] if unsub_button else [])
-        + [unsub_bank_toggle]
         + [lambda: [u() for u in _assigned_entity_unsubs]]
     )
+
+
+# ---------------------------------------------------------------------------
+# Native bank toggle — called on single_press in control mode
+# ---------------------------------------------------------------------------
+
+async def _do_bank_toggle(hass: HomeAssistant, suffix: str, bank_entity: str) -> None:
+    """Toggle the entity assigned to the active bank."""
+    if not bank_entity or bank_entity in ("unknown", "unavailable", "timer"):
+        return
+    domain = bank_entity.split(".")[0] if "." in bank_entity else ""
+    try:
+        if domain == "scene":
+            await hass.services.async_call("scene", "turn_on", {"entity_id": bank_entity})
+        elif domain == "script":
+            await hass.services.async_call("script", "turn_on", {"entity_id": bank_entity})
+        elif domain == "media_player":
+            await hass.services.async_call("media_player", "media_play_pause", {"entity_id": bank_entity})
+        elif domain == "cover":
+            await hass.services.async_call("cover", "toggle", {"entity_id": bank_entity})
+        else:
+            await hass.services.async_call("homeassistant", "toggle", {"entity_id": bank_entity})
+    except Exception:
+        _LOGGER.exception("Pivot: error toggling %s for %s", bank_entity, suffix)
 
 
 # ---------------------------------------------------------------------------
@@ -890,11 +909,9 @@ def _setup_button_event_listener(hass: HomeAssistant, entry: ConfigEntry):
         control_mode_state = hass.states.get(f"switch.{suffix}_control_mode")
         control_mode = control_mode_state.state == "on" if control_mode_state else False
 
-        # Record timestamp so the bank_toggle script listener can skip its
-        # duplicate when the firmware already fired single_press via button_press_event.
-        if press_type == "single_press":
-            import time as _time
-            hass.data[DOMAIN][entry.entry_id + "_last_single_press"] = _time.monotonic()
+        # Perform toggle natively — no blueprint required.
+        if press_type == "single_press" and control_mode and bank_entity:
+            hass.async_create_task(_do_bank_toggle(hass, suffix, bank_entity))
 
         hass.bus.async_fire(
             "pivot_button_press",
@@ -908,79 +925,6 @@ def _setup_button_event_listener(hass: HomeAssistant, entry: ConfigEntry):
         )
 
     return async_track_state_change_event(hass, [button_entity_id], _on_button_press)
-
-
-# ---------------------------------------------------------------------------
-# Bank-toggle script listener — fires single_press when not already fired
-# by the firmware via button_press_event (deduplication for reflashed firmware)
-# ---------------------------------------------------------------------------
-
-def _setup_bank_toggle_listener(hass: HomeAssistant, entry: ConfigEntry):
-    """Fire pivot_button_press for single_press by watching the bank-toggle script.
-
-    On pre-reflash firmware the bank-toggle script is the only source of
-    single_press events, so we fire here unconditionally (after a 3-second
-    dedup window).  On post-reflash firmware the button_press_event entity
-    already fired single_press via _on_button_press; the timestamp check
-    prevents a second event reaching automations 2-3 seconds later when the
-    HA API call to run the script eventually completes.
-    """
-    suffix = entry.data[CONF_DEVICE_SUFFIX]
-    script_entity_id = f"script.{suffix}_bank_toggle"
-    _DEDUP_WINDOW = 3.0  # seconds
-
-    @callback
-    def _on_bank_toggle_start(event) -> None:
-        new_state = event.data.get("new_state")
-        old_state = event.data.get("old_state")
-
-        # Only act on the off → on transition (script just started).
-        if new_state is None or new_state.state != "on":
-            return
-        if old_state is not None and old_state.state == "on":
-            return  # was already running (queued instance), not a new press
-
-        import time as _time
-        now = _time.monotonic()
-        last = hass.data[DOMAIN].get(entry.entry_id + "_last_single_press", 0.0)
-        if now - last < _DEDUP_WINDOW:
-            _LOGGER.debug(
-                "Pivot: suppressing duplicate single_press for %s "
-                "(firmware already fired %.1fs ago)",
-                suffix, now - last,
-            )
-            return
-
-        hass.data[DOMAIN][entry.entry_id + "_last_single_press"] = now
-
-        active_bank_state = hass.states.get(f"number.{suffix}_active_bank")
-        try:
-            bank_idx = int(float(active_bank_state.state)) - 1 if active_bank_state else 0
-        except (ValueError, AttributeError):
-            bank_idx = 0
-
-        text_state = hass.states.get(f"text.{suffix}_bank_{bank_idx}_entity")
-        bank_entity = (
-            text_state.state
-            if text_state and text_state.state not in ("", "unknown", "unavailable")
-            else ""
-        )
-
-        control_mode_state = hass.states.get(f"switch.{suffix}_control_mode")
-        control_mode = control_mode_state.state == "on" if control_mode_state else False
-
-        hass.bus.async_fire(
-            "pivot_button_press",
-            {
-                "suffix": suffix,
-                "bank": bank_idx + 1,
-                "bank_entity": bank_entity,
-                "press_type": "single_press",
-                "control_mode": control_mode,
-            },
-        )
-
-    return async_track_state_change_event(hass, [script_entity_id], _on_bank_toggle_start)
 
 
 # ---------------------------------------------------------------------------
@@ -1128,10 +1072,8 @@ async def _install_blueprints(hass: HomeAssistant, entry: ConfigEntry) -> None:
                 "title": f"Pivot — {friendly_name} Blueprints Installed",
                 "message": (
                     f"Pivot blueprints have been installed for **{friendly_name}**.\n\n"
-                    f"**Required — do this first:**\n"
-                    f"Go to [Scripts](/config/script/dashboard) → Create → Search blueprints → **Pivot — Bank Toggle**.\n"
-                    f"Set the Device Suffix to `{suffix}` and **set the script ID to `{suffix}_bank_toggle`** before saving.\n\n"
-                    f"**Optional:**\n"
+                    f"Button toggle works automatically — no script needed.\n\n"
+                    f"**Optional automations:**\n"
                     f"Go to [Automations](/config/automation/dashboard) → Create → Search blueprints → **Pivot — Announce** "
                     f"to enable spoken announcements (requires a TTS provider).\n\n"
                     f"If you use the timer feature, also create an automation from **Pivot — Timer**."
