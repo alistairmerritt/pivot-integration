@@ -392,7 +392,7 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
         current = {}
         for i in range(NUM_BANKS):
             key = f"bank_{i}_entity"
-            text_eid = make_entity_id("text", suffix, key) if suffix else None
+            text_eid = make_entity_id("text", suffix, f"bank_{i + 1}_entity") if suffix else None
             if text_eid:
                 state = self.hass.states.get(text_eid)
                 _LOGGER.debug("Pre-populate %s: state=%r", text_eid, state.state if state else None)
@@ -408,8 +408,8 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
             _LOGGER.debug("async_step_banks user_input: %s", user_input)
             for key, value in _apply_timer_banks(user_input).items():
                 i = int(key.split("_")[1])
-                text_eid = make_entity_id("text", suffix, key)
-                _LOGGER.debug("Writing bank %d: entity_id=%s value=%r", i, text_eid, value)
+                text_eid = make_entity_id("text", suffix, f"bank_{i + 1}_entity")
+                _LOGGER.debug("Writing bank %d: entity_id=%s value=%r", i + 1, text_eid, value)
                 state = self.hass.states.get(text_eid)
                 if state is None:
                     _LOGGER.warning("Text entity %s not found — skipping", text_eid)
