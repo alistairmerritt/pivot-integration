@@ -42,7 +42,7 @@ def get_button_event_entity(hass: HomeAssistant, device_id: str) -> str | None:
     """
     ent_reg = er.async_get(hass)
     fallback = None
-    for entity in ent_reg.async_entries_for_device(device_id):
+    for entity in er.async_entries_for_device(ent_reg, device_id):
         if entity.domain != "event":
             continue
         if (entity.original_device_class or entity.device_class) == "button":
