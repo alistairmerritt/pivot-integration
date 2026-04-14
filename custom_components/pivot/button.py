@@ -125,7 +125,7 @@ def setup_button_event_listener(
         except ValueError:
             bank_idx = 0
 
-        text_state = hass.states.get(f"text.{suffix}_bank_{bank_idx}_entity")
+        text_state = hass.states.get(f"text.{suffix}_bank_{bank_idx + 1}_entity")
         bank_entity = (
             text_state.state
             if text_state and text_state.state not in ("", "unknown", "unavailable")

@@ -90,8 +90,8 @@ class PivotBankColorLight(PivotEntity, LightEntity):
         """
         r, g, b = self._rgb
         hex_color = f"#{r:02X}{g:02X}{b:02X}"
-        text_entity_id = make_entity_id("text", self._suffix, f"bank_{self._bank}_color")
-        configured_entity_id = make_entity_id("text", self._suffix, f"bank_{self._bank}_configured_color")
+        text_entity_id = make_entity_id("text", self._suffix, f"bank_{self._bank + 1}_color")
+        configured_entity_id = make_entity_id("text", self._suffix, f"bank_{self._bank + 1}_configured_color")
         _LOGGER.debug("Pivot: pushing bank %d colour %s to %s", self._bank, hex_color, text_entity_id)
         await self.hass.services.async_call(
             "text", "set_value", {"entity_id": text_entity_id, "value": hex_color}, blocking=False,

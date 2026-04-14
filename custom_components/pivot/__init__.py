@@ -97,8 +97,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Zero bank values for passive domains on startup so the firmware cache
     # is correct even if HA restarted while a passive entity was assigned.
     for _i in range(NUM_BANKS):
-        _text_eid = f"text.{suffix}_bank_{_i}_entity"
-        _value_eid = f"number.{suffix}_bank_{_i}_value"
+        _text_eid = f"text.{suffix}_bank_{_i + 1}_entity"
+        _value_eid = f"number.{suffix}_bank_{_i + 1}_value"
 
         async def _zero_if_passive(t_eid=_text_eid, v_eid=_value_eid) -> None:
             text_state = hass.states.get(t_eid)

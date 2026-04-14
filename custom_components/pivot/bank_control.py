@@ -48,7 +48,7 @@ def setup_bank_control_listener(
         announce_cancels = {}
 
     bank_value_entity_ids = [
-        f"number.{suffix}_bank_{bank}_value" for bank in range(NUM_BANKS)
+        f"number.{suffix}_bank_{bank + 1}_value" for bank in range(NUM_BANKS)
     ]
     active_bank_entity_id = f"number.{suffix}_active_bank"
 
@@ -75,7 +75,7 @@ def setup_bank_control_listener(
 
         bank_idx = None
         for bank in range(NUM_BANKS):
-            if changed_entity_id == f"number.{suffix}_bank_{bank}_value":
+            if changed_entity_id == f"number.{suffix}_bank_{bank + 1}_value":
                 bank_idx = bank
                 break
         if bank_idx is None:
@@ -106,7 +106,7 @@ def setup_bank_control_listener(
         if new_state.context.parent_id is not None:
             return
 
-        text_state = hass.states.get(f"text.{suffix}_bank_{bank_idx}_entity")
+        text_state = hass.states.get(f"text.{suffix}_bank_{bank_idx + 1}_entity")
         if text_state is None or text_state.state in ("", "unknown", "unavailable"):
             return
 
@@ -190,7 +190,7 @@ def setup_bank_control_listener(
         if announce_enabled and tts_entity and media_player and "." in bank_entity:
             ann_domain = bank_entity.split(".")[0]
             if ann_domain in ANNOUNCEABLE_DOMAINS:
-                ann_switch = hass.states.get(f"switch.{suffix}_bank_{bank_idx}_announce_value")
+                ann_switch = hass.states.get(f"switch.{suffix}_bank_{bank_idx + 1}_announce_value")
                 if ann_switch and ann_switch.state == "on":
                     existing = announce_cancels.pop(bank_idx, None)
                     if existing:
@@ -231,7 +231,7 @@ def setup_bank_control_listener(
         if not 0 <= bank_idx < NUM_BANKS:
             return
 
-        text_state = hass.states.get(f"text.{suffix}_bank_{bank_idx}_entity")
+        text_state = hass.states.get(f"text.{suffix}_bank_{bank_idx + 1}_entity")
         bank_entity = (
             text_state.state
             if text_state and text_state.state not in ("", "unknown", "unavailable")
@@ -288,7 +288,7 @@ def setup_bank_control_listener(
                 synced = max(0, min(100, synced))
             except (ValueError, TypeError):
                 return
-            value_entity_id = f"number.{suffix}_bank_{bank_idx}_value"
+            value_entity_id = f"number.{suffix}_bank_{bank_idx + 1}_value"
             hass.async_create_task(
                 hass.services.async_call(
                     "number", "set_value",
@@ -303,7 +303,7 @@ def setup_bank_control_listener(
             return
 
         domain = bank_entity.split(".")[0]
-        value_entity_id = f"number.{suffix}_bank_{bank_idx}_value"
+        value_entity_id = f"number.{suffix}_bank_{bank_idx + 1}_value"
 
         # Passive banks (scene/script/switch) have no controllable value — zero the gauge
         if domain in PASSIVE_DOMAINS:
@@ -334,7 +334,7 @@ def setup_bank_control_listener(
             return
 
         for bank in range(NUM_BANKS):
-            text_state = hass.states.get(f"text.{suffix}_bank_{bank}_entity")
+            text_state = hass.states.get(f"text.{suffix}_bank_{bank + 1}_entity")
             if text_state is None or text_state.state != changed_entity_id:
                 continue
             domain = changed_entity_id.split(".")[0]
@@ -346,7 +346,7 @@ def setup_bank_control_listener(
             if time.monotonic() - _entity_apply_cooldown.get(bank, 0) < _SYNC_COOLDOWN_SECS:
                 continue
 
-            value_entity_id = f"number.{suffix}_bank_{bank}_value"
+            value_entity_id = f"number.{suffix}_bank_{bank + 1}_value"
             hass.async_create_task(
                 sync_value_from_entity(hass, domain, changed_entity_id, value_entity_id)
             )
@@ -360,7 +360,7 @@ def setup_bank_control_listener(
         _assigned_entity_unsubs.clear()
         entities = []
         for bank in range(NUM_BANKS):
-            text_state = hass.states.get(f"text.{suffix}_bank_{bank}_entity")
+            text_state = hass.states.get(f"text.{suffix}_bank_{bank + 1}_entity")
             if text_state and text_state.state and "." in text_state.state:
                 entities.append(text_state.state)
         if entities:
@@ -381,7 +381,7 @@ def setup_bank_control_listener(
         changed_entity_text_id = event.data.get("entity_id", "")
         bank_idx = None
         for bank in range(NUM_BANKS):
-            if changed_entity_text_id == f"text.{suffix}_bank_{bank}_entity":
+            if changed_entity_text_id == f"text.{suffix}_bank_{bank + 1}_entity":
                 bank_idx = bank
                 break
         if bank_idx is None:
@@ -400,7 +400,7 @@ def setup_bank_control_listener(
             return
         domain = bank_entity.split(".")[0]
         if domain in PASSIVE_DOMAINS:
-            value_entity_id = f"number.{suffix}_bank_{bank_idx}_value"
+            value_entity_id = f"number.{suffix}_bank_{bank_idx + 1}_value"
             hass.async_create_task(
                 hass.services.async_call(
                     "number", "set_value",
@@ -419,7 +419,7 @@ def setup_bank_control_listener(
     )
     unsub_assignments = async_track_state_change_event(
         hass,
-        [f"text.{suffix}_bank_{bank}_entity" for bank in range(NUM_BANKS)],
+        [f"text.{suffix}_bank_{bank + 1}_entity" for bank in range(NUM_BANKS)],
         _on_bank_assignment_changed,
     )
 

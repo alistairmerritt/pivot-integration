@@ -28,7 +28,7 @@ variables:
 
 sequence:
   - variables:
-      bank: "{{ states('number.' ~ suffix ~ '_active_bank') | int - 1 }}"
+      bank: "{{ states('number.' ~ suffix ~ '_active_bank') | int }}"
       bank_entity: "{{ states('text.' ~ suffix ~ '_bank_' ~ bank ~ '_entity') }}"
       domain: "{{ bank_entity.split('.')[0] if '.' in bank_entity else '' }}"
   - condition: template

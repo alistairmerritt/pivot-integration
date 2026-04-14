@@ -31,16 +31,16 @@ def setup_mirror_listeners(hass: HomeAssistant, entry: ConfigEntry) -> list:
 
     def _apply_mirror_for_bank(bank: int) -> None:
         """Check mirror state for one bank and write hex to color text entity."""
-        mirror_switch_id = make_entity_id("switch", suffix, f"bank_{bank}_mirror_light")
-        bank_entity_id = make_entity_id("text", suffix, f"bank_{bank}_entity")
-        color_text_id = make_entity_id("text", suffix, f"bank_{bank}_color")
-        configured_text_id = make_entity_id("text", suffix, f"bank_{bank}_configured_color")
+        mirror_switch_id = make_entity_id("switch", suffix, f"bank_{bank + 1}_mirror_light")
+        bank_entity_id = make_entity_id("text", suffix, f"bank_{bank + 1}_entity")
+        color_text_id = make_entity_id("text", suffix, f"bank_{bank + 1}_color")
+        configured_text_id = make_entity_id("text", suffix, f"bank_{bank + 1}_configured_color")
 
         # Always compute the user's configured color from the color picker light.
         # Write it to bank_N_configured_color regardless of mirror state — this entity
         # is never overwritten by the mirror listener, so the firmware can always read
         # the user's chosen color from it (used for Bank Indicator identity colors).
-        color_light_id = make_entity_id("light", suffix, f"bank_{bank}_color_light")
+        color_light_id = make_entity_id("light", suffix, f"bank_{bank + 1}_color_light")
         color_light_state = hass.states.get(color_light_id)
         rgb = color_light_state.attributes.get("rgb_color") if color_light_state else None
         if rgb and len(rgb) == 3:
@@ -112,8 +112,8 @@ def setup_mirror_listeners(hass: HomeAssistant, entry: ConfigEntry) -> list:
 
     watch_entities = []
     for bank in range(NUM_BANKS):
-        watch_entities.append(make_entity_id("switch", suffix, f"bank_{bank}_mirror_light"))
-        watch_entities.append(make_entity_id("text", suffix, f"bank_{bank}_entity"))
+        watch_entities.append(make_entity_id("switch", suffix, f"bank_{bank + 1}_mirror_light"))
+        watch_entities.append(make_entity_id("text", suffix, f"bank_{bank + 1}_entity"))
 
     unsubs.append(
         async_track_state_change_event(hass, watch_entities, _on_any_change)
@@ -122,7 +122,7 @@ def setup_mirror_listeners(hass: HomeAssistant, entry: ConfigEntry) -> list:
     def _get_assigned_lights() -> list[str]:
         lights = []
         for bank in range(NUM_BANKS):
-            bank_entity_id = make_entity_id("text", suffix, f"bank_{bank}_entity")
+            bank_entity_id = make_entity_id("text", suffix, f"bank_{bank + 1}_entity")
             state = hass.states.get(bank_entity_id)
             if state and state.state.startswith("light."):
                 lights.append(state.state)
@@ -150,7 +150,7 @@ def setup_mirror_listeners(hass: HomeAssistant, entry: ConfigEntry) -> list:
         _on_any_change(event)
 
     bank_entity_ids = [
-        make_entity_id("text", suffix, f"bank_{bank}_entity")
+        make_entity_id("text", suffix, f"bank_{bank + 1}_entity")
         for bank in range(NUM_BANKS)
     ]
     unsubs.append(

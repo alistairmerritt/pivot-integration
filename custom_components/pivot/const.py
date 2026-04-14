@@ -53,14 +53,14 @@ def make_suffix(esphome_device_name: str) -> str:
 
 
 def entity_unique_id(suffix: str, key: str) -> str:
-    """Build a unique_id. e.g. "pivot_home_assistant_voice_092e7d_bank_0_value" """
+    """Build a unique_id. e.g. "pivot_home_assistant_voice_092e7d_bank_1_value" """
     return f"pivot_{suffix}_{key}"
 
 
 def entity_id(platform: str, suffix: str, key: str) -> str:
     """
     Build the explicit entity ID to match what the firmware expects.
-    e.g. "number.home_assistant_pivot_test_bank_0_value"
+    e.g. "number.home_assistant_pivot_test_bank_1_value"
     Must be set explicitly — otherwise HA auto-generates from device+entity
     name which produces the wrong result (uses friendly name not ESPHome slug).
     """
@@ -78,9 +78,9 @@ def get_number_definitions(suffix: str) -> list[dict]:
     for bank in range(NUM_BANKS):
         defs.append({
             "platform": "number",
-            "key": f"bank_{bank}_value",
-            "unique_id": entity_unique_id(suffix, f"bank_{bank}_value"),
-            "entity_id": entity_id("number", suffix, f"bank_{bank}_value"),
+            "key": f"bank_{bank + 1}_value",
+            "unique_id": entity_unique_id(suffix, f"bank_{bank + 1}_value"),
+            "entity_id": entity_id("number", suffix, f"bank_{bank + 1}_value"),
             "name": f"Bank {bank + 1} Value",
             "icon": "mdi:brightness-6",
             "min": 0.0,
@@ -161,9 +161,9 @@ def get_switch_definitions(suffix: str) -> list[dict]:
     for bank in range(NUM_BANKS):
         switches.append({
             "platform": "switch",
-            "key": f"bank_{bank}_mirror_light",
-            "unique_id": entity_unique_id(suffix, f"bank_{bank}_mirror_light"),
-            "entity_id": entity_id("switch", suffix, f"bank_{bank}_mirror_light"),
+            "key": f"bank_{bank + 1}_mirror_light",
+            "unique_id": entity_unique_id(suffix, f"bank_{bank + 1}_mirror_light"),
+            "entity_id": entity_id("switch", suffix, f"bank_{bank + 1}_mirror_light"),
             "name": f"Bank {bank + 1} Mirror Light",
             "icon": "mdi:lightbulb-on",
             "initial": False,
@@ -171,9 +171,9 @@ def get_switch_definitions(suffix: str) -> list[dict]:
     for bank in range(NUM_BANKS):
         switches.append({
             "platform": "switch",
-            "key": f"bank_{bank}_announce_value",
-            "unique_id": entity_unique_id(suffix, f"bank_{bank}_announce_value"),
-            "entity_id": entity_id("switch", suffix, f"bank_{bank}_announce_value"),
+            "key": f"bank_{bank + 1}_announce_value",
+            "unique_id": entity_unique_id(suffix, f"bank_{bank + 1}_announce_value"),
+            "entity_id": entity_id("switch", suffix, f"bank_{bank + 1}_announce_value"),
             "name": f"Bank {bank + 1} Announce Value",
             "icon": "mdi:volume-high",
             "initial": False,
@@ -186,9 +186,9 @@ def get_text_definitions(suffix: str) -> list[dict]:
     return [
         {
             "platform": "text",
-            "key": f"bank_{bank}_entity",
-            "unique_id": entity_unique_id(suffix, f"bank_{bank}_entity"),
-            "entity_id": entity_id("text", suffix, f"bank_{bank}_entity"),
+            "key": f"bank_{bank + 1}_entity",
+            "unique_id": entity_unique_id(suffix, f"bank_{bank + 1}_entity"),
+            "entity_id": entity_id("text", suffix, f"bank_{bank + 1}_entity"),
             "name": f"Bank {bank + 1} Entity",
             "icon": "mdi:link-variant",
             "initial": "",
@@ -236,9 +236,9 @@ def get_binary_sensor_definitions(suffix: str) -> list[dict]:
     return [
         {
             "platform": "binary_sensor",
-            "key": f"bank_{bank}_passive",
-            "unique_id": entity_unique_id(suffix, f"bank_{bank}_passive"),
-            "entity_id": entity_id("binary_sensor", suffix, f"bank_{bank}_passive"),
+            "key": f"bank_{bank + 1}_passive",
+            "unique_id": entity_unique_id(suffix, f"bank_{bank + 1}_passive"),
+            "entity_id": entity_id("binary_sensor", suffix, f"bank_{bank + 1}_passive"),
             "name": f"Bank {bank + 1} Passive",
             "icon": "mdi:lightning-bolt-off",
         }
@@ -251,9 +251,9 @@ def get_color_text_definitions(suffix: str) -> list[dict]:
     return [
         {
             "platform": "text",
-            "key": f"bank_{bank}_color",
-            "unique_id": entity_unique_id(suffix, f"bank_{bank}_color"),
-            "entity_id": entity_id("text", suffix, f"bank_{bank}_color"),
+            "key": f"bank_{bank + 1}_color",
+            "unique_id": entity_unique_id(suffix, f"bank_{bank + 1}_color"),
+            "entity_id": entity_id("text", suffix, f"bank_{bank + 1}_color"),
             "name": f"Bank {bank + 1} Colour",
             "icon": "mdi:palette",
             "initial": BANK_COLORS_HEX[bank],
@@ -275,9 +275,9 @@ def get_configured_color_text_definitions(suffix: str) -> list[dict]:
     return [
         {
             "platform": "text",
-            "key": f"bank_{bank}_configured_color",
-            "unique_id": entity_unique_id(suffix, f"bank_{bank}_configured_color"),
-            "entity_id": entity_id("text", suffix, f"bank_{bank}_configured_color"),
+            "key": f"bank_{bank + 1}_configured_color",
+            "unique_id": entity_unique_id(suffix, f"bank_{bank + 1}_configured_color"),
+            "entity_id": entity_id("text", suffix, f"bank_{bank + 1}_configured_color"),
             "name": f"Bank {bank + 1} Configured Colour",
             "icon": "mdi:palette-outline",
             "initial": BANK_COLORS_HEX[bank],
@@ -354,9 +354,9 @@ def get_light_definitions(suffix: str) -> list[dict]:
     return [
         {
             "platform": "light",
-            "key": f"bank_{bank}_color_light",
-            "unique_id": entity_unique_id(suffix, f"bank_{bank}_color_light"),
-            "entity_id": entity_id("light", suffix, f"bank_{bank}_color_light"),
+            "key": f"bank_{bank + 1}_color_light",
+            "unique_id": entity_unique_id(suffix, f"bank_{bank + 1}_color_light"),
+            "entity_id": entity_id("light", suffix, f"bank_{bank + 1}_color_light"),
             "name": f"Bank {bank + 1} Colour",
             "icon": "mdi:palette",
             "default_rgb": BANK_COLORS_RGB[bank],

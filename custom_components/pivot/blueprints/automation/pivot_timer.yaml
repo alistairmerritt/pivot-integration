@@ -69,7 +69,7 @@ variables:
   bank: >
     {% set ns = namespace(found=0) %}
     {% for i in range(4) %}
-      {% if states('text.' ~ suffix ~ '_bank_' ~ i ~ '_entity') | lower == 'timer' and ns.found == 0 %}
+      {% if states('text.' ~ suffix ~ '_bank_' ~ (i + 1) ~ '_entity') | lower == 'timer' and ns.found == 0 %}
         {% set ns.found = i + 1 %}
       {% endif %}
     {% endfor %}
@@ -95,8 +95,8 @@ variables:
   duration_entity: "number.{{ suffix }}_timer_duration"
   timer_state_entity: "select.{{ suffix }}_timer_state"
   timer_end_entity: "text.{{ suffix }}_timer_end"
-  bank_value_entity: "number.{{ suffix }}_bank_{{ bank | int - 1 }}_value"
-  bank_entity_text_entity: "text.{{ suffix }}_bank_{{ bank | int - 1 }}_entity"
+  bank_value_entity: "number.{{ suffix }}_bank_{{ bank | int }}_value"
+  bank_entity_text_entity: "text.{{ suffix }}_bank_{{ bank | int }}_entity"
   dim_switch_entity: "switch.{{ suffix }}_dim_when_idle"
 
 trigger:
