@@ -6,6 +6,7 @@ import logging
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 
@@ -79,14 +80,9 @@ class PivotBankPassiveSensor(PivotEntity, BinarySensorEntity):
 
     def _find_text_entity_id(self) -> str | None:
         """Look up the entity_id of our sibling text entity by unique_id."""
-        entity_registry = self.hass.data.get("entity_registry")
-        if entity_registry is None:
-            from homeassistant.helpers import entity_registry as er
-            entity_registry = er.async_get(self.hass)
-        entry = entity_registry.async_get_entity_id(
+        return er.async_get(self.hass).async_get_entity_id(
             "text", DOMAIN, self._text_unique_id
         )
-        return entry
 
     @callback
     def _handle_text_state_change(self, event) -> None:

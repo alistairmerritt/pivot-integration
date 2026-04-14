@@ -92,11 +92,6 @@ variables:
        | select('match', 'switch\\..*')
        | select('search', 'timer_silent_mode')
        | list | first | default('') }}
-  button_event_entity: >
-    {{ device_entities(pivot_device)
-       | select('match', 'event\\..*')
-       | select('search', 'button')
-       | list | first | default('') }}
   duration_entity: "number.{{ suffix }}_timer_duration"
   timer_state_entity: "select.{{ suffix }}_timer_state"
   timer_end_entity: "text.{{ suffix }}_timer_end"

@@ -57,7 +57,6 @@
       "cannot_read_device_name": "Could not read ESPHome device name.",
       "must_confirm_firmware": "You must confirm the firmware is flashed before continuing.",
       "suffix_collision": "This device suffix is already in use by another Pivot device.",
-      "esphome_name_required": "Please enter the ESPHome device name.",
       "suffix_required": "Device suffix is required."
     }
   },

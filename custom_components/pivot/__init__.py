@@ -10,19 +10,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
+import shutil
 import time
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Context, HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event, async_call_later
 
 from .const import (
     DOMAIN, CONF_DEVICE_ID, CONF_ESPHOME_DEVICE_NAME, CONF_FRIENDLY_NAME, CONF_DEVICE_SUFFIX,
     CONF_ANNOUNCEMENTS, CONF_TTS_ENTITY, CONF_MEDIA_PLAYER_ENTITY,
-    CONF_SATELLITE_ENTITY, CONF_MANAGEMENT_MODE,
+    CONF_MANAGEMENT_MODE,
     MANAGEMENT_MANAGED, MANAGEMENT_BLUEPRINTS, MANAGEMENT_NEITHER,
-    NUM_BANKS, entity_id as make_entity_id,
+    NUM_BANKS, BANK_COLORS_HEX, entity_id as make_entity_id,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -159,8 +162,6 @@ def _sync_blueprints(hass: HomeAssistant) -> list[str]:
 
     Returns a list of relative paths that were actually written.
     """
-    import shutil
-
     integration_dir = os.path.dirname(__file__)
     updated: list[str] = []
 
@@ -234,8 +235,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         {"entity_id": _eid, "value": _val},
                         blocking=False,
                     )
-                except Exception:
-                    pass
+                except Exception as err:
+                    _LOGGER.debug("Pivot: could not write config text entity %s: %s", _eid, err)
 
     hass.async_create_task(_write_config_text_entities())
 
@@ -274,8 +275,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         {"entity_id": v_eid, "value": 0},
                         blocking=False,
                     )
-                except Exception:
-                    pass
+                except Exception as err:
+                    _LOGGER.debug("Pivot: could not zero passive bank value %s: %s", v_eid, err)
 
         hass.async_create_task(_zero_if_passive())
 
@@ -334,7 +335,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
-
 # ---------------------------------------------------------------------------
 # Mirror light colour listeners
 #
@@ -348,29 +348,25 @@ def _rgb_to_hex(r: int, g: int, b: int) -> str:
     return f"#{r:02X}{g:02X}{b:02X}"
 
 
-def _setup_mirror_listeners(hass, entry) -> list:
+def _setup_mirror_listeners(hass: HomeAssistant, entry: ConfigEntry) -> list:
     """Register state listeners for mirror light feature. Returns unsub list."""
-    from homeassistant.helpers.event import async_track_state_change_event
-    from .const import NUM_BANKS, entity_id as make_entity_id
-
     suffix = entry.data[CONF_DEVICE_SUFFIX]
     unsubs = []
 
     def _apply_mirror_for_bank(bank: int) -> None:
-        """Check mirror state for one bank and write hex to colour text entity."""
-        from .const import BANK_COLORS_HEX
+        """Check mirror state for one bank and write hex to color text entity."""
         mirror_switch_id = make_entity_id("switch", suffix, f"bank_{bank}_mirror_light")
         bank_entity_id = make_entity_id("text", suffix, f"bank_{bank}_entity")
-        colour_text_id = make_entity_id("text", suffix, f"bank_{bank}_color")
+        color_text_id = make_entity_id("text", suffix, f"bank_{bank}_color")
         configured_text_id = make_entity_id("text", suffix, f"bank_{bank}_configured_color")
 
-        # Always compute the user's configured colour from the colour picker light.
+        # Always compute the user's configured color from the color picker light.
         # Write it to bank_N_configured_color regardless of mirror state — this entity
         # is never overwritten by the mirror listener, so the firmware can always read
-        # the user's chosen colour from it (used for Bank Indicator identity colours).
-        colour_light_id = make_entity_id("light", suffix, f"bank_{bank}_color_light")
-        colour_light_state = hass.states.get(colour_light_id)
-        rgb = colour_light_state.attributes.get("rgb_color") if colour_light_state else None
+        # the user's chosen color from it (used for Bank Indicator identity colors).
+        color_light_id = make_entity_id("light", suffix, f"bank_{bank}_color_light")
+        color_light_state = hass.states.get(color_light_id)
+        rgb = color_light_state.attributes.get("rgb_color") if color_light_state else None
         if rgb and len(rgb) == 3:
             configured_hex = _rgb_to_hex(int(rgb[0]), int(rgb[1]), int(rgb[2]))
         else:
@@ -387,14 +383,14 @@ def _setup_mirror_listeners(hass, entry) -> list:
 
         mirror_state = hass.states.get(mirror_switch_id)
         if not mirror_state or mirror_state.state != "on":
-            # Mirror turned off — restore the configured colour to the display entity too
-            current = hass.states.get(colour_text_id)
+            # Mirror turned off — restore the configured color to the display entity too
+            current = hass.states.get(color_text_id)
             if not current or current.state.upper() != configured_hex.upper():
-                _LOGGER.debug("Pivot mirror: bank %d mirror off, restoring user colour %s", bank, configured_hex)
+                _LOGGER.debug("Pivot mirror: bank %d mirror off, restoring user color %s", bank, configured_hex)
                 hass.async_create_task(
                     hass.services.async_call(
                         "text", "set_value",
-                        {"entity_id": colour_text_id, "value": configured_hex},
+                        {"entity_id": color_text_id, "value": configured_hex},
                         blocking=False,
                     )
                 )
@@ -410,24 +406,24 @@ def _setup_mirror_listeners(hass, entry) -> list:
 
         light_state = hass.states.get(assigned)
         if not light_state or light_state.state != "on":
-            return  # light is off — leave bank colour as-is
+            return  # light is off — leave bank color as-is
 
         rgb = light_state.attributes.get("rgb_color")
         if not rgb or len(rgb) != 3:
-            return  # no RGB colour available
+            return  # no RGB color available
 
-        hex_colour = _rgb_to_hex(int(rgb[0]), int(rgb[1]), int(rgb[2]))
+        hex_color = _rgb_to_hex(int(rgb[0]), int(rgb[1]), int(rgb[2]))
 
-        # Check if colour text entity already has this value to avoid loops
-        current = hass.states.get(colour_text_id)
-        if current and current.state.upper() == hex_colour.upper():
+        # Check if color text entity already has this value to avoid loops
+        current = hass.states.get(color_text_id)
+        if current and current.state.upper() == hex_color.upper():
             return
 
-        _LOGGER.debug("Pivot mirror: bank %d writing %s to %s", bank, hex_colour, colour_text_id)
+        _LOGGER.debug("Pivot mirror: bank %d writing %s to %s", bank, hex_color, color_text_id)
         hass.async_create_task(
             hass.services.async_call(
                 "text", "set_value",
-                {"entity_id": colour_text_id, "value": hex_colour},
+                {"entity_id": color_text_id, "value": hex_color},
                 blocking=False,
             )
         )
@@ -509,7 +505,7 @@ def _format_value_announcement(hass: HomeAssistant, bank_entity: str, bank_value
     if not bank_entity or "." not in bank_entity:
         return None
     domain = bank_entity.split(".")[0]
-    if domain not in ("light", "fan", "climate", "media_player", "cover", "number"):
+    if domain not in ("light", "fan", "climate", "media_player", "cover", "number", "input_number"):
         return None
     entity_state = hass.states.get(bank_entity)
     if entity_state is None or entity_state.state in ("unavailable", "unknown"):
@@ -530,7 +526,7 @@ def _format_value_announcement(hass: HomeAssistant, bank_entity: str, bank_value
         return f"Volume {round(bank_value)} percent."
     if domain == "fan":
         return f"Speed {round(bank_value)} percent."
-    if domain == "number":
+    if domain in ("number", "input_number"):
         unit = entity_state.attributes.get("unit_of_measurement") or ""
         return f"Set to {entity_state.state}{' ' + unit if unit else ''}."
     return None
@@ -550,8 +546,8 @@ async def _do_tts(hass: HomeAssistant, tts_entity: str, media_player: str, messa
             },
             blocking=False,
         )
-    except Exception:
-        _LOGGER.debug("Pivot: TTS call failed (entity=%s message=%r)", tts_entity, message)
+    except Exception as err:
+        _LOGGER.debug("Pivot: TTS call failed (entity=%s message=%r): %s", tts_entity, message, err)
 
 
 # ---------------------------------------------------------------------------
@@ -644,8 +640,6 @@ def _setup_bank_control_listener(
 
         # Timer bank: map knob value (0-100) to timer_duration when idle
         if bank_entity == "timer":
-            if new_state.context.parent_id is not None:
-                return
             timer_state_id = f"select.{suffix}_timer_state"
             timer_st = hass.states.get(timer_state_id)
             if timer_st is None or timer_st.state != "idle":
@@ -716,7 +710,7 @@ def _setup_bank_control_listener(
         # Cancels and restarts on each knob turn so only the settled value is spoken.
         if announce_enabled and tts_entity and media_player and "." in bank_entity:
             ann_domain = bank_entity.split(".")[0]
-            if ann_domain in ("light", "fan", "climate", "media_player", "cover", "number"):
+            if ann_domain in ("light", "fan", "climate", "media_player", "cover", "number", "input_number"):
                 ann_switch = hass.states.get(f"switch.{suffix}_bank_{bank_idx}_announce_value")
                 if ann_switch and ann_switch.state == "on":
                     # Cancel any existing debounce for this bank
@@ -823,6 +817,7 @@ def _setup_bank_control_listener(
                 hass.services.async_call(
                     "number", "set_value",
                     {"entity_id": value_entity_id, "value": synced},
+                    context=Context(parent_id="pivot_sync"),
                     blocking=False,
                 )
             )
@@ -1009,7 +1004,7 @@ def _setup_button_event_listener(
     tts_entity: str = "",
     media_player: str = "",
     announce_enabled: bool = False,
-):
+) -> object | None:
     """Listen for VPE button press events and fire pivot_button_press on the HA bus."""
     suffix = entry.data[CONF_DEVICE_SUFFIX]
     device_id = entry.data.get(CONF_DEVICE_ID)
@@ -1018,7 +1013,6 @@ def _setup_button_event_listener(
     if not device_id:
         esphome_name = entry.data.get(CONF_ESPHOME_DEVICE_NAME)
         if esphome_name:
-            from homeassistant.helpers import device_registry as dr
             dev_reg = dr.async_get(hass)
             for device in dev_reg.devices.values():
                 for eid in device.config_entries:
@@ -1132,7 +1126,6 @@ async def _apply_value_to_entity(
     hass: HomeAssistant, domain: str, entity_id: str, value: float
 ) -> None:
     """Call the appropriate service to apply a 0-100 value to an entity."""
-    import math
     if math.isnan(value) or math.isinf(value):
         return
     value = max(0.0, min(100.0, value))
@@ -1239,7 +1232,6 @@ async def _sync_value_from_entity(
     )
 
     if synced_value is not None:
-        import math
         if math.isnan(synced_value) or math.isinf(synced_value):
             _LOGGER.warning("Pivot sync: NaN/inf synced_value for %s, skipping", entity_id)
             return
@@ -1303,8 +1295,8 @@ async def _cleanup_legacy_blueprint_files(hass: HomeAssistant, entry: ConfigEntr
                     try:
                         os.remove(os.path.join(bp_dir, fname))
                         removed.append(fname)
-                    except OSError:
-                        pass
+                    except OSError as err:
+                        _LOGGER.debug("Pivot: could not remove legacy file %s: %s", fname, err)
         # Remove backup files created during managed-mode file writes
         for backup in [
             hass.config.path("automations.yaml.pivot_backup"),
@@ -1314,8 +1306,8 @@ async def _cleanup_legacy_blueprint_files(hass: HomeAssistant, entry: ConfigEntr
                 try:
                     os.remove(backup)
                     removed.append(os.path.basename(backup))
-                except OSError:
-                    pass
+                except OSError as err:
+                    _LOGGER.debug("Pivot: could not remove backup file %s: %s", backup, err)
         return removed
 
     removed = await hass.async_add_executor_job(_remove)
@@ -1362,14 +1354,12 @@ async def _remove_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) ->
         _LOGGER.warning("Pivot: could not reload scripts after removal: %s", e)
 
 
-
 def _get_button_event_entity(hass: HomeAssistant, device_id: str) -> str | None:
     """Find the button press event entity for a VPE device.
 
     Matches the event entity with device_class 'button' on the ESPHome device.
     Falls back to any event-domain entity on the device if device_class is absent.
     """
-    from homeassistant.helpers import entity_registry as er
     ent_reg = er.async_get(hass)
     fallback = None
     for entity in ent_reg.entities.values():

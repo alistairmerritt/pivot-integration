@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 
 from homeassistant.components.number import NumberMode, RestoreNumber
 from homeassistant.config_entries import ConfigEntry
@@ -48,7 +49,6 @@ class PivotNumber(PivotEntity, RestoreNumber):
         if (last_data := await self.async_get_last_number_data()) is not None:
             if last_data.native_value is not None:
                 restored = float(last_data.native_value)
-                import math
                 if not math.isnan(restored) and not math.isinf(restored):
                     self._attr_native_value = max(
                         self._attr_native_min_value,
@@ -60,7 +60,6 @@ class PivotNumber(PivotEntity, RestoreNumber):
         return self._attr_native_value
 
     async def async_set_native_value(self, value: float) -> None:
-        import math
         if math.isnan(value) or math.isinf(value):
             return
         self._attr_native_value = max(

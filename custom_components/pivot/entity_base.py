@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
 
@@ -26,7 +27,6 @@ class PivotEntity(RestoreEntity):
         self._attr_name = definition["name"]
         self._attr_icon = definition.get("icon")
         if "entity_category" in definition:
-            from homeassistant.const import EntityCategory
             self._attr_entity_category = EntityCategory(definition["entity_category"])
         if not definition.get("entity_registry_enabled_default", True):
             self._attr_entity_registry_enabled_default = False

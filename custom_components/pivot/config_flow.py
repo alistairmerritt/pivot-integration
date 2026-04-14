@@ -20,18 +20,14 @@ from .const import (
     CONF_ANNOUNCEMENTS,
     CONF_TTS_ENTITY,
     CONF_MEDIA_PLAYER_ENTITY,
-    CONF_SATELLITE_ENTITY,
     CONF_MANAGEMENT_MODE,
     MANAGEMENT_BLUEPRINTS,
     NUM_BANKS,
-    BANK_NAMES,
     make_suffix,
+    entity_id as make_entity_id,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-# Config keys for bank entity assignments
-CONF_BANK_ENTITIES = [f"bank_{i}_entity" for i in range(NUM_BANKS)]
 
 
 def _get_esphome_devices(hass: HomeAssistant) -> dict[str, str]:
@@ -233,15 +229,14 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["firmware_confirmed"] = "must_confirm_firmware"
             else:
                 raw = user_input.get(CONF_DEVICE_SUFFIX, "").strip()
-                if not raw:
+                suffix = make_suffix(raw)
+                if not suffix:
                     errors[CONF_DEVICE_SUFFIX] = "suffix_required"
+                elif _suffix_in_use(self.hass, suffix):
+                    errors[CONF_DEVICE_SUFFIX] = "suffix_collision"
                 else:
-                    suffix = make_suffix(raw)
-                    if _suffix_in_use(self.hass, suffix):
-                        errors[CONF_DEVICE_SUFFIX] = "suffix_collision"
-                    else:
-                        self._device_suffix = suffix
-                        return await self.async_step_options()
+                    self._device_suffix = suffix
+                    return await self.async_step_options()
 
         return self.async_show_form(
             step_id="confirm",
@@ -298,8 +293,6 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Step 3 (initial setup only): Assign entities to banks."""
-        from .const import entity_id as make_entity_id
-
         if user_input is not None:
             for key, value in _apply_timer_banks(user_input).items():
                 self._pending_entry_data[key] = value
@@ -383,8 +376,6 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Step 2: Assign entities to banks — writes directly to text entities."""
-        from .const import CONF_DEVICE_SUFFIX, entity_id as make_entity_id
-
         suffix = self.config_entry.data.get(CONF_DEVICE_SUFFIX, "")
         _LOGGER.debug("async_step_banks suffix=%r", suffix)
 

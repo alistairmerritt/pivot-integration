@@ -15,9 +15,10 @@ from homeassistant.components.light import (
     LightEntity,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
@@ -110,10 +111,10 @@ class PivotBankColorLight(LightEntity, RestoreEntity):
         configured_entity_id = make_entity_id("text", self._suffix, f"bank_{self._bank}_configured_color")
         _LOGGER.debug("Pivot: pushing bank %d colour %s to %s", self._bank, hex_color, text_entity_id)
         await self.hass.services.async_call(
-            "text", "set_value", {"entity_id": text_entity_id, "value": hex_color}, blocking=True,
+            "text", "set_value", {"entity_id": text_entity_id, "value": hex_color}, blocking=False,
         )
         await self.hass.services.async_call(
-            "text", "set_value", {"entity_id": configured_entity_id, "value": hex_color}, blocking=True,
+            "text", "set_value", {"entity_id": configured_entity_id, "value": hex_color}, blocking=False,
         )
 
     async def async_added_to_hass(self) -> None:
@@ -124,9 +125,8 @@ class PivotBankColorLight(LightEntity, RestoreEntity):
             self._rgb = tuple(last_state.attributes["rgb_color"])
             self._is_on = last_state.state != "off"
 
-            async def _push_on_startup() -> None:
-                import asyncio
-                await asyncio.sleep(3)
-                await self._push_colour()
+            @callback
+            def _push_on_startup(_now: object) -> None:
+                self.hass.async_create_task(self._push_colour())
 
-            self.hass.async_create_task(_push_on_startup())
+            async_call_later(self.hass, 3, _push_on_startup)

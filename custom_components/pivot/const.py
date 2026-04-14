@@ -10,7 +10,6 @@ CONF_FRIENDLY_NAME = "friendly_name"   # HA display name, e.g. "Living Room VPE"
 CONF_ANNOUNCEMENTS = "announcements"   # bool — enable/disable all spoken announcements
 CONF_TTS_ENTITY = "tts_entity"         # kept for migration compat
 CONF_MEDIA_PLAYER_ENTITY = "media_player_entity"  # kept for migration compat
-CONF_SATELLITE_ENTITY = "satellite_entity"  # assist_satellite entity
 CONF_MANAGEMENT_MODE = "management_mode"  # "managed" | "blueprints" | "neither"
 
 # Management mode values
@@ -21,14 +20,6 @@ MANAGEMENT_BLUEPRINTS = "blueprints"
 MANAGEMENT_NEITHER = "neither"
 
 NUM_BANKS = 4
-
-# Bank display names and colours (matches firmware)
-BANK_NAMES = {
-    0: "Blue",
-    1: "Orange",
-    2: "Green",
-    3: "Purple",
-}
 
 # RGB tuples matching the firmware LED colours — used for UI hints
 BANK_COLORS_RGB = {
@@ -201,6 +192,7 @@ def get_text_definitions(suffix: str) -> list[dict]:
             "icon": "mdi:link-variant",
             "initial": "",
             "max_length": 255,
+            "validate_entity_id": True,
         }
         for bank in range(NUM_BANKS)
     ]
@@ -255,12 +247,6 @@ def get_binary_sensor_definitions(suffix: str) -> list[dict]:
 
 def get_color_text_definitions(suffix: str) -> list[dict]:
     """Hidden text entities storing hex colour per bank (read by firmware)."""
-    defaults = {
-        0: "#2889FF",  # Blue
-        1: "#FF7D19",  # Orange
-        2: "#97FF3D",  # Green
-        3: "#C800FF",  # Purple
-    }
     return [
         {
             "platform": "text",
@@ -269,7 +255,7 @@ def get_color_text_definitions(suffix: str) -> list[dict]:
             "entity_id": entity_id("text", suffix, f"bank_{bank}_color"),
             "name": f"Bank {bank + 1} Colour",
             "icon": "mdi:palette",
-            "initial": defaults[bank],
+            "initial": BANK_COLORS_HEX[bank],
             "max_length": 7,
             "entity_category": "diagnostic",  # tucked away in UI but enabled so firmware can read it
         }
@@ -285,12 +271,6 @@ def get_configured_color_text_definitions(suffix: str) -> list[dict]:
     reads them to keep bank_mirror_r/g/b_N in sync so the Bank Indicator shows
     the correct identity colour even when mirror light is active.
     """
-    defaults = {
-        0: "#2889FF",  # Blue
-        1: "#FF7D19",  # Orange
-        2: "#97FF3D",  # Green
-        3: "#C800FF",  # Purple
-    }
     return [
         {
             "platform": "text",
@@ -299,7 +279,7 @@ def get_configured_color_text_definitions(suffix: str) -> list[dict]:
             "entity_id": entity_id("text", suffix, f"bank_{bank}_configured_color"),
             "name": f"Bank {bank + 1} Configured Colour",
             "icon": "mdi:palette-outline",
-            "initial": defaults[bank],
+            "initial": BANK_COLORS_HEX[bank],
             "max_length": 7,
             "entity_category": "diagnostic",  # tucked away but always enabled so firmware can read it
         }
@@ -370,12 +350,6 @@ def get_timer_text_definitions(suffix: str) -> list[dict]:
 
 def get_light_definitions(suffix: str) -> list[dict]:
     """Virtual light entities for bank colour pickers."""
-    defaults = {
-        0: (40, 137, 255),   # Blue
-        1: (255, 125, 25),   # Orange
-        2: (151, 255, 61),   # Green
-        3: (200, 0, 255),    # Purple
-    }
     return [
         {
             "platform": "light",
@@ -384,7 +358,7 @@ def get_light_definitions(suffix: str) -> list[dict]:
             "entity_id": entity_id("light", suffix, f"bank_{bank}_color_light"),
             "name": f"Bank {bank + 1} Colour",
             "icon": "mdi:palette",
-            "default_rgb": defaults[bank],
+            "default_rgb": BANK_COLORS_RGB[bank],
             "bank": bank,
         }
         for bank in range(NUM_BANKS)
