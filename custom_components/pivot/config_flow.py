@@ -65,17 +65,19 @@ def _get_esphome_device_name(hass: HomeAssistant, device: dr.DeviceEntry) -> str
             )
             # Try "name" first (older ESPHome versions), then "host"
             name = entry.data.get("name") or entry.data.get("host") or ""
-            # Strip .local suffix if present
             name = name.removesuffix(".local").strip()
             if name:
                 return name
-            # Last resort: use title but warn — this will be the friendly name, not device name
+            # The title is the user-visible friendly name, not the device's
+            # network hostname, so using it as a suffix will produce wrong
+            # entity IDs. Treat this as a hard failure rather than silently
+            # producing a misconfigured entry.
             _LOGGER.warning(
-                "Could not find ESPHome device name in entry data for %s, "
-                "falling back to title %r — this may cause entity ID mismatches",
-                device.id, entry.title
+                "Could not find ESPHome device name in entry data for %s "
+                "(title=%r) — cannot determine correct entity ID suffix",
+                device.id, entry.title,
             )
-            return entry.title
+            return None
     return None
 
 
@@ -94,12 +96,12 @@ def _suffix_in_use(hass: HomeAssistant, suffix: str) -> bool:
 
 
 def _bank_entity_schema(current: dict[str, str] | None = None) -> vol.Schema:
-    """Build a schema with a timer-bank multi-select and one EntitySelector per bank.
+    """Build a schema with a timer-bank single-select and one EntitySelector per bank.
 
-    A 'timer_banks' multi-select lets users mark any bank as a timer bank without
+    A 'timer_banks' single-select lets users mark one bank as a timer bank without
     typing the reserved value 'timer' into an entity field. The step handler writes
-    'timer' to those banks and ignores their entity picker value.
-    Entity pickers are shown for all banks but left blank for timer banks.
+    'timer' to that bank and ignores its entity picker value.
+    Entity pickers are shown for all banks but left blank for the timer bank.
     """
     current = current or {}
     fields = {}
@@ -217,7 +219,7 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     # ------------------------------------------------------------------
-    # Step 2: Firmware confirmation + device suffix entry
+    # Step 2: Firmware confirmation + device suffix review
     # ------------------------------------------------------------------
     async def async_step_confirm(
         self, user_input: dict[str, Any] | None = None
@@ -242,7 +244,9 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="confirm",
             data_schema=vol.Schema({
                 vol.Required("firmware_confirmed", default=False): bool,
-                vol.Required(CONF_DEVICE_SUFFIX, default=""): str,
+                # Pre-fill with the auto-derived suffix so the user can review
+                # it without having to retype from scratch.
+                vol.Required(CONF_DEVICE_SUFFIX, default=self._device_suffix or ""): str,
             }),
             errors=errors,
             description_placeholders={
@@ -257,7 +261,6 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         if user_input is not None:
-            # Store options data and proceed to bank entity assignment
             self._pending_entry_data = {
                 CONF_DEVICE_ID: self._selected_device_id,
                 CONF_ESPHOME_DEVICE_NAME: self._esphome_device_name,
@@ -292,7 +295,7 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_banks_initial(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Step 3 (initial setup only): Assign entities to banks."""
+        """Step 4 (initial setup only): Assign entities to banks."""
         if user_input is not None:
             for key, value in _apply_timer_banks(user_input).items():
                 self._pending_entry_data[key] = value
@@ -315,11 +318,18 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
+    """Options flow for Pivot.
+
+    Step 1: General settings (TTS / media player / announcements).
+    Step 2: Bank entity assignment (writes directly to live text entities).
+
+    Bank assignments are stored in entity state rather than config_entry.options
+    so that entity IDs remain stable across reloads. config_entry.options holds
+    only the general settings from step 1.
     """
-    Options flow for Pivot:
-      1. General settings (management mode + TTS/media player)
-      2. Bank entity assignment
-    """
+
+    def __init__(self) -> None:
+        self._pending: dict = {}
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -416,5 +426,4 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
         return self.async_show_form(
             step_id="banks",
             data_schema=_bank_entity_schema(current),
-
         )

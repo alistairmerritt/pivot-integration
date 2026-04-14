@@ -10,13 +10,10 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import DOMAIN, CONF_DEVICE_SUFFIX, NUM_BANKS, get_binary_sensor_definitions, get_text_definitions
+from .const import DOMAIN, CONF_DEVICE_SUFFIX, NUM_BANKS, PASSIVE_DOMAINS, get_binary_sensor_definitions, get_text_definitions
 from .entity_base import PivotEntity
 
 _LOGGER = logging.getLogger(__name__)
-
-# Domains that are considered "passive" — the knob does nothing, single press toggles/fires them
-PASSIVE_DOMAINS = {"scene", "script", "switch", "input_boolean"}
 
 
 async def async_setup_entry(
@@ -76,6 +73,12 @@ class PivotBankPassiveSensor(PivotEntity, BinarySensorEntity):
                     [text_entity_id],
                     self._handle_text_state_change,
                 )
+            )
+        else:
+            _LOGGER.warning(
+                "Pivot: could not find text entity for bank %d passive sensor "
+                "(unique_id=%s) — passive flag will always read False",
+                self._bank, self._text_unique_id,
             )
 
     def _find_text_entity_id(self) -> str | None:

@@ -18,6 +18,10 @@ MANAGEMENT_NEITHER = "neither"
 
 NUM_BANKS = 4
 
+# Domains where the knob has no meaningful continuous value to control.
+# Single press toggles/fires them; the LED gauge is zeroed when one is assigned.
+PASSIVE_DOMAINS: frozenset[str] = frozenset({"scene", "script", "switch", "input_boolean"})
+
 # RGB tuples matching the firmware LED colours — used for UI hints
 BANK_COLORS_RGB = {
     0: (40, 137, 255),

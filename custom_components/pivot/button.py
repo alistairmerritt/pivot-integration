@@ -9,7 +9,7 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .announcements import do_tts
-from .const import CONF_DEVICE_ID, CONF_DEVICE_SUFFIX, CONF_ESPHOME_DEVICE_NAME, NUM_BANKS
+from .const import CONF_DEVICE_ID, CONF_DEVICE_SUFFIX, CONF_ESPHOME_DEVICE_NAME
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,8 +42,8 @@ def get_button_event_entity(hass: HomeAssistant, device_id: str) -> str | None:
     """
     ent_reg = er.async_get(hass)
     fallback = None
-    for entity in ent_reg.entities.values():
-        if entity.device_id != device_id or entity.domain != "event":
+    for entity in ent_reg.async_entries_for_device(device_id):
+        if entity.domain != "event":
             continue
         if (entity.original_device_class or entity.device_class) == "button":
             return entity.entity_id
@@ -155,7 +155,7 @@ def setup_button_event_listener(
             },
         )
 
-        # Native triple press re-announcement
+        # Native triple press re-announcement (system announcement, not value announcement)
         if (press_type == "triple_press"
                 and announce_enabled and tts_entity and media_player
                 and bank_entity and "." in bank_entity):

@@ -70,20 +70,26 @@ async def install_blueprints(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
     if copied:
         _LOGGER.info("Pivot: installed blueprints for %s: %s", suffix, copied)
-        await hass.services.async_call(
-            "persistent_notification",
-            "create",
-            {
-                "title": f"Pivot — {friendly_name} Blueprints Installed",
-                "message": (
-                    f"Pivot blueprints have been installed for **{friendly_name}**.\n\n"
-                    f"Button toggle works automatically — no script needed.\n\n"
-                    f"**Optional automations:**\n"
-                    f"Go to [Automations](/config/automation/dashboard) → Create → Search blueprints → **Pivot — Announce** "
-                    f"to enable spoken announcements (requires a TTS provider).\n\n"
-                    f"If you use the timer feature, also create an automation from **Pivot — Timer**."
-                ),
-                "notification_id": f"pivot_blueprints_{suffix}",
-            },
-            blocking=False,
-        )
+        try:
+            await hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": f"Pivot — {friendly_name} Blueprints Installed",
+                    "message": (
+                        f"Pivot blueprints have been installed for **{friendly_name}**.\n\n"
+                        f"Button toggle works automatically — no script needed.\n\n"
+                        f"**Optional automations:**\n"
+                        f"Go to [Automations](/config/automation/dashboard) → Create → Search blueprints → **Pivot — Announce** "
+                        f"to enable spoken announcements (requires a TTS provider).\n\n"
+                        f"If you use the timer feature, also create an automation from **Pivot — Timer**."
+                    ),
+                    "notification_id": f"pivot_blueprints_{suffix}",
+                },
+                blocking=False,
+            )
+        except Exception as err:
+            _LOGGER.warning(
+                "Pivot: could not create blueprint install notification for %s: %s",
+                suffix, err,
+            )

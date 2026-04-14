@@ -5,12 +5,11 @@ import logging
 import time
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import Context, HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, Context, HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 
 from .announcements import ANNOUNCEABLE_DOMAINS, do_tts, format_value_announcement
-from .button import setup_button_event_listener
-from .const import CONF_DEVICE_SUFFIX, NUM_BANKS
+from .const import CONF_DEVICE_SUFFIX, NUM_BANKS, PASSIVE_DOMAINS
 from .entity_mappings import apply_value_to_entity, sync_value_from_entity
 
 _LOGGER = logging.getLogger(__name__)
@@ -26,7 +25,7 @@ def setup_bank_control_listener(
     tts_entity: str = "",
     media_player: str = "",
     announce_enabled: bool = False,
-    announce_cancels: dict | None = None,
+    announce_cancels: dict[int, CALLBACK_TYPE] | None = None,
 ) -> list:
     """Register state change listeners for bank control and sync.
 
@@ -54,6 +53,12 @@ def setup_bank_control_listener(
     active_bank_entity_id = f"number.{suffix}_active_bank"
 
     # monotonic timestamp of the last time Pivot applied a value to each bank's entity.
+    # Used alongside the parent_id context guard:
+    # - parent_id guard: prevents re-applying the value when a sync write triggers
+    #   _on_bank_value_changed (the write carries parent_id="pivot_sync").
+    # - cooldown: prevents syncing intermediate transition values back to the gauge
+    #   during the period after Pivot issues a service call (e.g. a light fading).
+    # Both guards are needed — they protect against different feedback paths.
     _entity_apply_cooldown: dict[int, float] = {}
 
     @callback
@@ -65,11 +70,9 @@ def setup_bank_control_listener(
 
         if new_state is None or new_state.state in ("unknown", "unavailable", ""):
             return
-        # Ignore if value hasn't actually changed
         if old_state is not None and old_state.state == new_state.state:
             return
 
-        # Identify which bank changed
         bank_idx = None
         for bank in range(NUM_BANKS):
             if changed_entity_id == f"number.{suffix}_bank_{bank}_value":
@@ -95,16 +98,14 @@ def setup_bank_control_listener(
             return
 
         # Only respond to genuine device pushes (physical knob turns).
-        # Bank value changes from live-entity sync (sync_value_from_entity) and
-        # bank-switch sync are issued as HA service calls, so their state change
-        # carries a non-None context.parent_id. Ignoring those prevents
-        # pivot_knob_turn from firing when an external source (e.g. a motion
-        # trigger turning on a light) causes a sync update, and also stops the
-        # value being needlessly re-applied to the entity a second time.
+        # Bank value changes from sync_value_from_entity and bank-switch syncs are
+        # issued as HA service calls, so their state change carries a non-None
+        # context.parent_id. Ignoring those prevents pivot_knob_turn from firing
+        # when an external source causes a sync update, and stops the value being
+        # needlessly re-applied to the entity a second time.
         if new_state.context.parent_id is not None:
             return
 
-        # Look up assigned entity
         text_state = hass.states.get(f"text.{suffix}_bank_{bank_idx}_entity")
         if text_state is None or text_state.state in ("", "unknown", "unavailable"):
             return
@@ -148,7 +149,7 @@ def setup_bank_control_listener(
         domain = bank_entity.split(".")[0]
 
         # Skip passive domains — knob does nothing for scenes/scripts/switches
-        if domain in ("scene", "script", "switch", "input_boolean"):
+        if domain in PASSIVE_DOMAINS:
             return
 
         try:
@@ -181,12 +182,16 @@ def setup_bank_control_listener(
 
         # Native value announcement — debounced 600 ms (matches blueprint behaviour).
         # Cancels and restarts on each knob turn so only the settled value is spoken.
+        # Note: uses the knob position for the announcement message, not the entity's
+        # actual attribute value, because the entity may still be transitioning.
+        # System announcements (switch.{suffix}_announcements) are independent of this —
+        # value announcements are gated only by switch.{suffix}_bank_N_announce_value
+        # and switch.{suffix}_mute_announcements.
         if announce_enabled and tts_entity and media_player and "." in bank_entity:
             ann_domain = bank_entity.split(".")[0]
             if ann_domain in ANNOUNCEABLE_DOMAINS:
                 ann_switch = hass.states.get(f"switch.{suffix}_bank_{bank_idx}_announce_value")
                 if ann_switch and ann_switch.state == "on":
-                    # Cancel any existing debounce for this bank
                     existing = announce_cancels.pop(bank_idx, None)
                     if existing:
                         existing()
@@ -233,7 +238,6 @@ def setup_bank_control_listener(
             else ""
         )
 
-        # Fire event for blueprints and user automations
         hass.bus.async_fire(
             "pivot_bank_changed",
             {
@@ -248,7 +252,7 @@ def setup_bank_control_listener(
             announce_cancels.pop(_bi, None)
             _cancel()
 
-        # Native bank change announcement
+        # Native bank change announcement (system announcement, not value announcement)
         if announce_enabled and tts_entity and media_player and bank_entity:
             _cm = hass.states.get(f"switch.{suffix}_control_mode")
             _ann = hass.states.get(f"switch.{suffix}_announcements")
@@ -301,8 +305,8 @@ def setup_bank_control_listener(
         domain = bank_entity.split(".")[0]
         value_entity_id = f"number.{suffix}_bank_{bank_idx}_value"
 
-        # Passive banks (scene/script) have no controllable value — zero the gauge
-        if domain in ("scene", "script", "switch", "input_boolean"):
+        # Passive banks (scene/script/switch) have no controllable value — zero the gauge
+        if domain in PASSIVE_DOMAINS:
             hass.async_create_task(
                 hass.services.async_call(
                     "number", "set_value",
@@ -334,7 +338,7 @@ def setup_bank_control_listener(
             if text_state is None or text_state.state != changed_entity_id:
                 continue
             domain = changed_entity_id.split(".")[0]
-            if domain not in ("light", "fan", "climate", "media_player", "cover", "input_number", "number"):
+            if domain not in ANNOUNCEABLE_DOMAINS:
                 continue
 
             # Skip if Pivot just applied a value to this entity — the entity
@@ -369,7 +373,8 @@ def setup_bank_control_listener(
         """Re-register entity watchers when a bank's assigned entity changes."""
         _register_assigned_entity_watchers()
 
-        # If the active bank was just reassigned to a passive entity, zero the gauge
+        # If the active bank was just reassigned to a passive entity, zero the gauge.
+        # Non-active banks are handled lazily when the user next switches to them.
         new_state = event.data.get("new_state")
         if new_state is None or new_state.state in ("", "unknown", "unavailable"):
             return
@@ -394,7 +399,7 @@ def setup_bank_control_listener(
         if "." not in bank_entity:
             return
         domain = bank_entity.split(".")[0]
-        if domain in ("scene", "script", "switch", "input_boolean"):
+        if domain in PASSIVE_DOMAINS:
             value_entity_id = f"number.{suffix}_bank_{bank_idx}_value"
             hass.async_create_task(
                 hass.services.async_call(
@@ -418,16 +423,7 @@ def setup_bank_control_listener(
         _on_bank_assignment_changed,
     )
 
-    # Button event listener — performs toggle natively and fires pivot_button_press
-    unsub_button = setup_button_event_listener(
-        hass, entry,
-        tts_entity=tts_entity,
-        media_player=media_player,
-        announce_enabled=announce_enabled,
-    )
-
     return (
         [unsub_values, unsub_active, unsub_assignments]
-        + ([unsub_button] if unsub_button else [])
         + [lambda: [u() for u in _assigned_entity_unsubs]]
     )

@@ -1,12 +1,14 @@
 """Shared base class for all Pivot entities."""
 from __future__ import annotations
 
+import urllib.parse
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, CONF_DEVICE_ID, CONF_FRIENDLY_NAME, CONF_ESPHOME_DEVICE_NAME, CONF_DEVICE_SUFFIX
+from .const import DOMAIN, CONF_DEVICE_ID, CONF_ESPHOME_DEVICE_NAME, CONF_DEVICE_SUFFIX
 
 
 class PivotEntity(RestoreEntity):
@@ -36,16 +38,19 @@ class PivotEntity(RestoreEntity):
             self.entity_id = definition["entity_id"]
 
         device_id: str = config_entry.data[CONF_DEVICE_ID]
-        friendly_name: str = config_entry.data[CONF_FRIENDLY_NAME]
         esphome_name: str = config_entry.data[CONF_ESPHOME_DEVICE_NAME]
         suffix: str = config_entry.data[CONF_DEVICE_SUFFIX]
 
-        # Name the device "pivot_{suffix}" so HA auto-generates entity IDs as
-        # "{platform}.pivot_{suffix}_{entity_key}" — matching what the firmware expects.
+        # Sanitise esphome_name before embedding in a URL.
+        # ESPHome device names are hostnames (alphanumeric + hyphens) so
+        # percent-encoding is a no-op in practice, but guards against any
+        # unexpected value from the ESPHome config entry data.
+        safe_host = urllib.parse.quote(esphome_name, safe="-.")
+
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
             name=suffix,
             model="Home Assistant Voice Preview Edition",
             manufacturer="Pivot",
-            configuration_url=f"http://{esphome_name}.local",
+            configuration_url=f"http://{safe_host}.local",
         )

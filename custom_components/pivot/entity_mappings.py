@@ -59,9 +59,16 @@ async def apply_value_to_entity(
         state = hass.states.get(entity_id)
         if state is None:
             return
-        min_val = float(state.attributes.get("min", 0))
-        max_val = float(state.attributes.get("max", 100))
+        try:
+            min_val = float(state.attributes.get("min", 0))
+            max_val = float(state.attributes.get("max", 100))
+            step = float(state.attributes.get("step", 1))
+        except (ValueError, TypeError):
+            return
         scaled = min_val + (value / 100.0) * (max_val - min_val)
+        # Snap to the entity's own step size to avoid rejection from HA validation
+        if step > 0:
+            scaled = round(round(scaled / step) * step, 10)
         scaled = round(max(min_val, min(max_val, scaled)), 2)
         await hass.services.async_call(
             domain, "set_value",
@@ -80,11 +87,16 @@ async def sync_value_from_entity(
     synced_value: float | None = None
 
     if domain == "light":
-        brightness = state.attributes.get("brightness")
-        if brightness is not None:
-            synced_value = round(float(brightness) / 255 * 100)
-        else:
+        if state.state == "off":
             synced_value = 0.0
+        else:
+            brightness = state.attributes.get("brightness")
+            if brightness is not None:
+                synced_value = round(float(brightness) / 255 * 100)
+            else:
+                # Light is on but has no brightness attribute (non-dimmable).
+                # Report 100% so the knob reflects "fully on" rather than 0%.
+                synced_value = 100.0
     elif domain == "fan":
         pct = state.attributes.get("percentage")
         if pct is not None:
@@ -96,7 +108,9 @@ async def sync_value_from_entity(
                 min_temp = float(state.attributes.get("min_temp", 16))
                 max_temp = float(state.attributes.get("max_temp", 30))
             except (ValueError, TypeError):
-                min_temp, max_temp = 16.0, 30.0
+                # Cannot determine range — skip sync rather than using a
+                # hardcoded Celsius fallback that may be wrong for Fahrenheit.
+                return
             if max_temp > min_temp:
                 synced_value = round((float(temp) - min_temp) / (max_temp - min_temp) * 100)
             else:
@@ -115,8 +129,11 @@ async def sync_value_from_entity(
         except (ValueError, TypeError):
             raw = None
         if raw is not None:
-            min_val = float(state.attributes.get("min", 0))
-            max_val = float(state.attributes.get("max", 100))
+            try:
+                min_val = float(state.attributes.get("min", 0))
+                max_val = float(state.attributes.get("max", 100))
+            except (ValueError, TypeError):
+                return
             if max_val != min_val:
                 synced_value = round((raw - min_val) / (max_val - min_val) * 100)
             else:

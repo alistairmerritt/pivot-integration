@@ -37,9 +37,10 @@ class PivotSwitch(PivotEntity, SwitchEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        if (last := await self.async_get_last_state()) is not None:
+        last = await self.async_get_last_state()
+        if last is not None:
             self._attr_is_on = last.state == "on"
-            self.async_write_ha_state()
+        self.async_write_ha_state()
 
     @property
     def is_on(self) -> bool:

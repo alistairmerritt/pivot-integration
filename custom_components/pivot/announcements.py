@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
-# Domains that support value announcements
-ANNOUNCEABLE_DOMAINS = frozenset(
+# Domains that support continuous value announcements (e.g. "Brightness 70 percent").
+# Passive domains (scene, script, switch, input_boolean) are excluded — their
+# knob position has no meaningful value to announce.
+ANNOUNCEABLE_DOMAINS: frozenset[str] = frozenset(
     ("light", "fan", "climate", "media_player", "cover", "number", "input_number")
 )
 
@@ -16,8 +18,10 @@ ANNOUNCEABLE_DOMAINS = frozenset(
 def format_value_announcement(hass: HomeAssistant, bank_entity: str, bank_value: float) -> str | None:
     """Build a TTS message string for a value announcement.
 
-    Reads the current entity state at call time (post-debounce) so climate and
-    cover report their actual attribute values rather than the knob percentage.
+    Uses the knob position (bank_value) for light/fan/media_player/cover since
+    the entity may still be transitioning at announcement time. For climate and
+    cover, reads the actual attribute value post-debounce so the spoken
+    temperature/position reflects what the entity confirmed, not the knob target.
     """
     if not bank_entity or "." not in bank_entity:
         return None
@@ -65,3 +69,8 @@ async def do_tts(hass: HomeAssistant, tts_entity: str, media_player: str, messag
         )
     except Exception as err:
         _LOGGER.debug("Pivot: TTS call failed (entity=%s message=%r): %s", tts_entity, message, err)
+
+
+# Re-export CALLBACK_TYPE so callers that store cancel handles can type them correctly
+# without importing directly from homeassistant.core.
+__all__ = ["ANNOUNCEABLE_DOMAINS", "format_value_announcement", "do_tts", "CALLBACK_TYPE"]

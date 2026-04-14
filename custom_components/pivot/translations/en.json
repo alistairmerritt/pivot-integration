@@ -1,93 +1,73 @@
 {
   "config": {
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "no_esphome_devices": "No ESPHome devices were found. Add your Pivot device to ESPHome first."
+    },
+    "error": {
+      "cannot_read_device_name": "Could not determine the ESPHome device name. Check the ESPHome integration logs.",
+      "device_not_found": "The selected device could not be found in the device registry.",
+      "must_confirm_firmware": "You must confirm the device is running Pivot firmware before continuing.",
+      "suffix_collision": "This device suffix is already in use by another Pivot entry. Choose a different suffix.",
+      "suffix_required": "A device suffix is required."
+    },
     "step": {
       "user": {
-        "title": "Select ESPHome Device",
+        "title": "Select your Pivot device",
+        "description": "Choose the ESPHome device running Pivot firmware.",
         "data": {
-          "device_id": "ESPHome Device"
+          "device_id": "Device"
         }
       },
       "confirm": {
-        "title": "Confirm Pivot Firmware",
-        "description": "Make sure **{device_name}** is running the Pivot firmware.\n\nEnter the `device_suffix` you set in your firmware YAML. This must be unique across all your Pivot devices. It determines your entity IDs and cannot be changed without reflashing the firmware.",
+        "title": "Confirm firmware and device suffix",
+        "description": "Confirm that **{device_name}** is running Pivot firmware, then review the device suffix. The suffix is used to build entity IDs — it must match what the firmware expects.",
         "data": {
-          "firmware_confirmed": "I have flashed the Pivot firmware",
-          "device_suffix": "Device Suffix"
-        },
-        "data_description": {
-          "device_suffix": "Must match `device_suffix` in your firmware YAML exactly, e.g. `lounge` or `ha_voice_1`"
+          "firmware_confirmed": "Device is running Pivot firmware",
+          "device_suffix": "Device suffix"
         }
       },
       "options": {
-        "title": "Settings",
-        "description": "Optionally configure a text-to-speech service and speaker for spoken announcements. When enabled, Pivot will announce bank names when you switch banks, re-announce on triple press, and speak entity values after the knob settles. These settings can be changed at any time.",
+        "title": "Announcement settings",
+        "description": "Configure spoken announcements for **{device_name}**. TTS and media player are optional — announcements can be enabled later.",
         "data": {
-          "tts_entity": "Text-to-speech service",
-          "media_player_entity": "Speaker",
-          "announcements": "Enable spoken announcements"
-        },
-        "data_description": {
-          "tts_entity": "Used for bank change, triple press, and value announcements. Also shared with the Timer blueprint automatically.",
-          "media_player_entity": "The speaker used for all spoken announcements.",
-          "announcements": "When on, Pivot announces bank names on bank change and triple press, and speaks entity values after the knob settles (per-bank Announce Value switches provide further control). Requires TTS and speaker to be configured."
+          "tts_entity": "TTS entity",
+          "media_player_entity": "Media player",
+          "announcements": "Enable system announcements"
         }
       },
       "banks_initial": {
         "title": "Assign entities to banks",
-        "description": "Assign a Home Assistant entity to each bank. You can leave banks empty and assign them later.",
+        "description": "Choose which entity each bank controls. You can change these later via the integration options.",
         "data": {
-          "timer_banks": "Timer bank (optional)",
-          "bank_0_entity": "Bank 1",
-          "bank_1_entity": "Bank 2",
-          "bank_2_entity": "Bank 3",
-          "bank_3_entity": "Bank 4"
-        },
-        "data_description": {
-          "timer_banks": "Timers are an optional add-on feature. If you want to use one, select which bank should act as a timer. That bank will be reserved for the Pivot — Timer blueprint — entity assignment is not used while a bank is set to timer, so any entity selected for that bank below will be ignored. See the Pivot docs for timer setup instructions."
+          "timer_banks": "Timer bank",
+          "bank_0_entity": "Bank 1 entity",
+          "bank_1_entity": "Bank 2 entity",
+          "bank_2_entity": "Bank 3 entity",
+          "bank_3_entity": "Bank 4 entity"
         }
       }
-    },
-    "abort": {
-      "already_configured": "This device is already configured.",
-      "no_esphome_devices": "No ESPHome devices found. Add your VPE in the ESPHome integration first.",
-      "suffix_collision": "Another Pivot entry already uses this device suffix."
-    },
-    "error": {
-      "device_not_found": "Device not found in registry.",
-      "cannot_read_device_name": "Could not read ESPHome device name.",
-      "must_confirm_firmware": "You must confirm the firmware is flashed before continuing.",
-      "suffix_collision": "This device suffix is already in use by another Pivot device.",
-      "suffix_required": "Device suffix is required."
     }
   },
   "options": {
     "step": {
       "init": {
-        "title": "Settings",
-        "description": "Optionally configure a text-to-speech service and speaker for spoken announcements. When enabled, Pivot will announce bank names when you switch banks, re-announce on triple press, and speak entity values after the knob settles. These settings can be changed at any time.",
+        "title": "Announcement settings",
         "data": {
-          "tts_entity": "Text-to-speech service",
-          "media_player_entity": "Speaker",
-          "announcements": "Enable spoken announcements"
-        },
-        "data_description": {
-          "tts_entity": "Used for bank change, triple press, and value announcements. Also shared with the Timer blueprint automatically.",
-          "media_player_entity": "The speaker used for all spoken announcements.",
-          "announcements": "When on, Pivot announces bank names on bank change and triple press, and speaks entity values after the knob settles (per-bank Announce Value switches provide further control). Requires TTS and speaker to be configured."
+          "tts_entity": "TTS entity",
+          "media_player_entity": "Media player",
+          "announcements": "Enable system announcements"
         }
       },
       "banks": {
-        "title": "Bank Entity Assignment",
-        "description": "Assign a Home Assistant entity to each bank. All banks are optional — leave any empty to skip it.\n\n**How it works:** in Control Mode, turn the knob to adjust the entity (brightness, volume, fan speed, etc.) and press the button to toggle it on/off.\n\n**Scenes & scripts** activate on button press only — the knob does nothing for those.",
+        "title": "Assign entities to banks",
+        "description": "Choose which entity each bank controls.",
         "data": {
-          "timer_banks": "Timer bank (optional)",
-          "bank_0_entity": "Bank 1",
-          "bank_1_entity": "Bank 2",
-          "bank_2_entity": "Bank 3",
-          "bank_3_entity": "Bank 4"
-        },
-        "data_description": {
-          "timer_banks": "Timers are an optional add-on feature. If you want to use one, select which bank should act as a timer. That bank will be reserved for the Pivot — Timer blueprint — entity assignment is not used while a bank is set to timer, so any entity selected for that bank below will be ignored. See the Pivot docs for timer setup instructions."
+          "timer_banks": "Timer bank",
+          "bank_0_entity": "Bank 1 entity",
+          "bank_1_entity": "Bank 2 entity",
+          "bank_2_entity": "Bank 3 entity",
+          "bank_3_entity": "Bank 4 entity"
         }
       }
     }
