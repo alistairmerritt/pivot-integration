@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant
+from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,8 +69,3 @@ async def do_tts(hass: HomeAssistant, tts_entity: str, media_player: str, messag
         )
     except Exception as err:
         _LOGGER.debug("Pivot: TTS call failed (entity=%s message=%r): %s", tts_entity, message, err)
-
-
-# Re-export CALLBACK_TYPE so callers that store cancel handles can type them correctly
-# without importing directly from homeassistant.core.
-__all__ = ["ANNOUNCEABLE_DOMAINS", "format_value_announcement", "do_tts", "CALLBACK_TYPE"]
