@@ -8,7 +8,6 @@ Handles all runtime logic for Pivot devices:
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import math
 import os
@@ -24,7 +23,7 @@ from .const import (
     DOMAIN, CONF_DEVICE_ID, CONF_ESPHOME_DEVICE_NAME, CONF_FRIENDLY_NAME, CONF_DEVICE_SUFFIX,
     CONF_ANNOUNCEMENTS, CONF_TTS_ENTITY, CONF_MEDIA_PLAYER_ENTITY,
     CONF_MANAGEMENT_MODE,
-    MANAGEMENT_MANAGED, MANAGEMENT_BLUEPRINTS, MANAGEMENT_NEITHER,
+    MANAGEMENT_BLUEPRINTS, MANAGEMENT_NEITHER,
     NUM_BANKS, BANK_COLORS_HEX, entity_id as make_entity_id,
 )
 
@@ -32,124 +31,6 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["number", "switch", "text", "binary_sensor", "light", "select"]
 
-
-# ---------------------------------------------------------------------------
-# Locks used by the migration cleanup path (removing legacy managed-mode files).
-# Kept to serialise concurrent reads of scripts.yaml / automations.yaml during
-# upgrade from an older install that used Automatic (managed) mode.
-# ---------------------------------------------------------------------------
-_SCRIPTS_YAML_LOCK = asyncio.Lock()
-_AUTOMATIONS_YAML_LOCK = asyncio.Lock()
-
-
-def _strip_script_lines(lines: list[str], script_key: str) -> list[str]:
-    """Strip all Pivot content for script_key from a scripts.yaml line list.
-
-    Removes both the current ``!include`` style entries AND old inline-YAML
-    blocks that older integration versions (or HA's automation editor) may
-    have written directly into scripts.yaml.
-    """
-    marker = f"pivot_{script_key}.yaml"
-    result: list[str] = []
-    in_inline_block = False
-
-    for line in lines:
-        # Always drop include-style references and the auto-added comment.
-        if marker in line or "Auto-added by Pivot" in line:
-            in_inline_block = False
-            continue
-
-        # Detect the start of an old inline script block:
-        #   ha_voice_grey_bank_toggle:
-        # or
-        #   ha_voice_grey_bank_toggle: {inline mapping}
-        is_root_key = (
-            not line[:1].isspace()
-            and not line.startswith("#")
-            and line.strip()
-        )
-        if is_root_key and line.startswith(f"{script_key}:"):
-            rest = line[len(script_key) + 1 :]
-            if not rest.strip() or rest[:1] in (" ", "\t"):
-                in_inline_block = True
-                continue
-
-        if in_inline_block:
-            # Stay in the block while lines are indented, blank, or comments.
-            if line.strip() and not line[:1].isspace() and not line.startswith("#"):
-                # Hit the next root-level key — end of the Pivot block.
-                in_inline_block = False
-                # Fall through: this line belongs to the next entry.
-            else:
-                continue  # Still inside the old Pivot block; skip it.
-
-        result.append(line)
-
-    return result
-
-
-def _strip_automation_lines(lines: list[str], automation_key: str) -> list[str]:
-    """Strip all Pivot content for automation_key from an automations.yaml line list.
-
-    Removes both the current ``- !include`` style entry AND old inline
-    automation blocks (written directly into automations.yaml by prior
-    integration versions or when HA's automation editor "flattened" an
-    include into the main file).
-    """
-    marker = f"{automation_key}.yaml"
-
-    # First pass: find line-index ranges belonging to old inline Pivot automations.
-    # A top-level list item in automations.yaml starts with "- " at column 0.
-    skip_indices: set[int] = set()
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        # Top-level list item (not a nested "  - ..." item).
-        if line.startswith("- ") and not line[:2] == "-\t":
-            block_start = i
-            # Scan the block for our automation id.
-            j = i + 1
-            found = False
-            while j < len(lines):
-                next_line = lines[j]
-                # End of this list item: next top-level "- " entry.
-                if next_line.startswith("- ") and not next_line[:2] == "-\t":
-                    break
-                if (
-                    f"id: {automation_key}" in next_line
-                    or f'id: "{automation_key}"' in next_line
-                    or f"id: '{automation_key}'" in next_line
-                ):
-                    found = True
-                    break
-                j += 1
-
-            if found:
-                # Mark every line in this block for removal.
-                block_end = j  # exclusive; j is either EOF or the next "- " item
-                for k in range(block_start, block_end):
-                    skip_indices.add(k)
-                i = block_end
-                continue
-        i += 1
-
-    return [
-        line
-        for idx, line in enumerate(lines)
-        if idx not in skip_indices
-        and marker not in line
-        and "Auto-added by Pivot" not in line
-    ]
-
-
-# ---------------------------------------------------------------------------
-# Domain setup — runs once when the integration is first loaded
-# ---------------------------------------------------------------------------
-
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Sync bundled blueprints into the user's config directory on every startup."""
-    await hass.async_add_executor_job(_sync_blueprints, hass)
-    return True
 
 
 def _sync_blueprints(hass: HomeAssistant) -> list[str]:
@@ -290,20 +171,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         or entry.data.get(CONF_MANAGEMENT_MODE)
         or MANAGEMENT_BLUEPRINTS
     )
-
-    # Migration: Automatic (managed) mode has been removed.
-    # Clean up any files it wrote and treat the device as Blueprint mode.
-    if management_mode == MANAGEMENT_MANAGED:
-        _LOGGER.info(
-            "Pivot: '%s' was configured in Automatic mode (removed) — "
-            "cleaning up managed files and switching to Blueprint mode",
-            friendly_name,
-        )
-        await _cleanup_managed_files(hass, entry)
-        management_mode = MANAGEMENT_BLUEPRINTS
-
-    # Always clean up any old per-device blueprint files and backup files from managed mode
-    await _cleanup_legacy_blueprint_files(hass, entry)
 
     if management_mode == MANAGEMENT_BLUEPRINTS:
         await _install_blueprints(hass, entry)
@@ -1140,8 +1007,20 @@ async def _apply_value_to_entity(
             {"entity_id": entity_id, "percentage": round(value)},
         )
     elif domain == "climate":
-        # Map 0-100% -> 16-30 degrees C
-        temp = round(16 + (value / 100 * 14), 1)
+        state = hass.states.get(entity_id)
+        if state is None:
+            return
+        try:
+            min_temp = float(state.attributes.get("min_temp", 16))
+            max_temp = float(state.attributes.get("max_temp", 30))
+            step = float(state.attributes.get("target_temp_step", 0.5))
+        except (ValueError, TypeError):
+            return
+        if max_temp <= min_temp:
+            return
+        temp = min_temp + (value / 100.0) * (max_temp - min_temp)
+        temp = round(round(temp / step) * step, 10)  # snap to step
+        temp = round(max(min_temp, min(max_temp, temp)), 2)
         await hass.services.async_call(
             "climate", "set_temperature",
             {"entity_id": entity_id, "temperature": temp},
@@ -1198,7 +1077,15 @@ async def _sync_value_from_entity(
     elif domain == "climate":
         temp = state.attributes.get("temperature")
         if temp is not None:
-            synced_value = round((float(temp) - 16) / 14 * 100)
+            try:
+                min_temp = float(state.attributes.get("min_temp", 16))
+                max_temp = float(state.attributes.get("max_temp", 30))
+            except (ValueError, TypeError):
+                min_temp, max_temp = 16.0, 30.0
+            if max_temp > min_temp:
+                synced_value = round((float(temp) - min_temp) / (max_temp - min_temp) * 100)
+            else:
+                synced_value = 0.0
     elif domain == "media_player":
         vol = state.attributes.get("volume_level")
         if vol is not None:
@@ -1277,82 +1164,6 @@ async def _install_blueprints(hass: HomeAssistant, entry: ConfigEntry) -> None:
         )
 
 
-async def _cleanup_legacy_blueprint_files(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove old per-device blueprint files and backup files left by managed mode."""
-    suffix = entry.data[CONF_DEVICE_SUFFIX]
-
-    def _remove():
-        removed = []
-        # Remove old per-device blueprint files (e.g. pivot_ha_voice_orange_announcements.yaml)
-        for bp_dir in [
-            hass.config.path("blueprints", "automation", "pivot"),
-            hass.config.path("blueprints", "script", "pivot"),
-        ]:
-            if not os.path.isdir(bp_dir):
-                continue
-            for fname in os.listdir(bp_dir):
-                if suffix in fname and fname.endswith(".yaml"):
-                    try:
-                        os.remove(os.path.join(bp_dir, fname))
-                        removed.append(fname)
-                    except OSError as err:
-                        _LOGGER.debug("Pivot: could not remove legacy file %s: %s", fname, err)
-        # Remove backup files created during managed-mode file writes
-        for backup in [
-            hass.config.path("automations.yaml.pivot_backup"),
-            hass.config.path("scripts.yaml.pivot_backup"),
-        ]:
-            if os.path.exists(backup):
-                try:
-                    os.remove(backup)
-                    removed.append(os.path.basename(backup))
-                except OSError as err:
-                    _LOGGER.debug("Pivot: could not remove backup file %s: %s", backup, err)
-        return removed
-
-    removed = await hass.async_add_executor_job(_remove)
-    if removed:
-        _LOGGER.info("Pivot: removed legacy managed-mode files for %s: %s", suffix, removed)
-
-
-async def _cleanup_managed_files(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove Pivot-managed files when switching away from Managed mode."""
-    await _remove_bank_toggle_script(hass, entry)
-    await _remove_announcements_automation(hass, entry)
-    _LOGGER.info("Pivot: cleaned up managed files for %s", entry.data[CONF_DEVICE_SUFFIX])
-
-
-async def _remove_bank_toggle_script(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove Pivot script files and reload."""
-    suffix = entry.data[CONF_DEVICE_SUFFIX]
-    script_key = f"{suffix}_bank_toggle"
-    pivot_script_path = hass.config.path("pivot", f"pivot_{script_key}.yaml")
-
-    def _remove():
-        # Delete our owned file (check both new subdir and old flat path)
-        for path in [pivot_script_path, hass.config.path(f"pivot_{script_key}.yaml")]:
-            if os.path.exists(path):
-                os.remove(path)
-        # Remove all Pivot content for this key from scripts.yaml
-        scripts_path = hass.config.path("scripts.yaml")
-        if not os.path.exists(scripts_path):
-            return
-        with open(scripts_path, "r") as f:
-            lines = f.readlines()
-        new_lines = _strip_script_lines(lines, script_key)
-        if len(new_lines) != len(lines):
-            with open(scripts_path, "w") as f:
-                f.writelines(new_lines)
-
-    async with _SCRIPTS_YAML_LOCK:
-        await hass.async_add_executor_job(_remove)
-
-    try:
-        await hass.services.async_call("script", "reload", blocking=True)
-        _LOGGER.info("Pivot: removed script.%s", script_key)
-    except Exception as e:
-        _LOGGER.warning("Pivot: could not reload scripts after removal: %s", e)
-
 
 def _get_button_event_entity(hass: HomeAssistant, device_id: str) -> str | None:
     """Find the button press event entity for a VPE device.
@@ -1371,39 +1182,3 @@ def _get_button_event_entity(hass: HomeAssistant, device_id: str) -> str | None:
     return fallback
 
 
-async def _remove_announcements_automation(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove legacy managed-mode automation file and its include line from automations.yaml."""
-    suffix = entry.data[CONF_DEVICE_SUFFIX]
-    automation_key = f"pivot_{suffix}_announcements"
-    pivot_auto_path = hass.config.path("pivot", f"{automation_key}.yaml")
-    automations_path = hass.config.path("automations.yaml")
-
-    def _remove_automation():
-        # Delete our owned file — check all known paths (current + legacy names)
-        for path in [
-            pivot_auto_path,
-            hass.config.path("pivot", f"pivot_{automation_key}.yaml"),  # old double-prefix subdir
-            hass.config.path(f"pivot_{automation_key}.yaml"),            # old double-prefix flat
-        ]:
-            if os.path.exists(path):
-                os.remove(path)
-        # Remove all Pivot content for this key from automations.yaml
-        if not os.path.exists(automations_path):
-            return False
-        with open(automations_path, "r") as f:
-            lines = f.readlines()
-        new_lines = _strip_automation_lines(lines, automation_key)
-        if len(new_lines) == len(lines):
-            return False
-        with open(automations_path, "w") as f:
-            f.writelines(new_lines)
-        return True
-
-    async with _AUTOMATIONS_YAML_LOCK:
-        removed = await hass.async_add_executor_job(_remove_automation)
-    if removed:
-        try:
-            await hass.services.async_call("automation", "reload", blocking=True)
-            _LOGGER.info("Pivot: removed automation %s", automation_key)
-        except Exception as e:
-            _LOGGER.warning("Pivot: could not reload automations after removal: %s", e)
