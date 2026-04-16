@@ -1,5 +1,7 @@
 # Pivot — HA Integration
 
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
 A HACS integration for Home Assistant that creates the required entities, handles button toggle natively, and installs blueprint files for optional announcement and timer automations for Pivot firmware on the Home Assistant Voice Preview Edition (VPE).
 
 > **New to Pivot?** Start at the [Pivot documentation site](https://alistairmerritt.github.io/pivot) for a full getting started guide, firmware setup, and troubleshooting.
