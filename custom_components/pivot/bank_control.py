@@ -19,6 +19,14 @@ _LOGGER = logging.getLogger(__name__)
 # which would otherwise sync back and cause an oscillation loop.
 _SYNC_COOLDOWN_SECS = 2.0
 
+# Domains that receive a debounced service call rather than an immediate one.
+# Cloud-connected and protocol-limited devices (climate, cover, media_player) can
+# become unresponsive or drop commands if flooded with rapid updates while the
+# knob is being turned quickly. The debounce fires only after the knob settles.
+# Lights and fans are kept immediate so dimming and fan-speed feel real-time.
+_DEBOUNCE_DOMAINS: frozenset[str] = frozenset({"climate", "cover", "media_player"})
+_DEBOUNCE_DELAY_SECS: float = 0.4
+
 
 def setup_bank_control_listener(
     hass: HomeAssistant, entry: ConfigEntry,
@@ -60,6 +68,11 @@ def setup_bank_control_listener(
     #   during the period after Pivot issues a service call (e.g. a light fading).
     # Both guards are needed — they protect against different feedback paths.
     _entity_apply_cooldown: dict[int, float] = {}
+
+    # Pending debounce cancel handles for slow domains (climate, cover, media_player).
+    # Each entry is the cancel callback returned by async_call_later.
+    # Replaced on every knob tick and fired once the knob settles.
+    _apply_debounce_cancels: dict[int, CALLBACK_TYPE] = {}
 
     @callback
     def _on_bank_value_changed(event) -> None:
@@ -157,12 +170,37 @@ def setup_bank_control_listener(
         except ValueError:
             return
 
-        # Stamp cooldown so incoming entity state changes (e.g. light
-        # transition intermediate values) don't sync back and create a loop.
-        _entity_apply_cooldown[bank_idx] = time.monotonic()
-        hass.async_create_task(
-            apply_value_to_entity(hass, domain, bank_entity, value)
-        )
+        if domain in _DEBOUNCE_DOMAINS:
+            # Cancel any pending call for this bank and reschedule.
+            # The actual service call fires once the knob settles (_DEBOUNCE_DELAY_SECS
+            # after the last tick). This prevents flooding cloud-connected devices
+            # (climate, cover, media_player) with rapid commands while turning quickly.
+            existing = _apply_debounce_cancels.pop(bank_idx, None)
+            if existing:
+                existing()
+
+            _bd = bank_entity
+            _bv = value
+            _bi = bank_idx
+
+            @callback
+            def _fire_apply(_now=None, bd=_bd, bv=_bv, bi=_bi) -> None:
+                _apply_debounce_cancels.pop(bi, None)
+                _entity_apply_cooldown[bi] = time.monotonic()
+                hass.async_create_task(
+                    apply_value_to_entity(hass, domain, bd, bv)
+                )
+
+            _apply_debounce_cancels[bank_idx] = async_call_later(
+                hass, _DEBOUNCE_DELAY_SECS, _fire_apply
+            )
+        else:
+            # Lights, fans, and other fast-response domains: apply immediately
+            # so dimming and speed control feel real-time.
+            _entity_apply_cooldown[bank_idx] = time.monotonic()
+            hass.async_create_task(
+                apply_value_to_entity(hass, domain, bank_entity, value)
+            )
 
         # Fire event for user automations
         try:
