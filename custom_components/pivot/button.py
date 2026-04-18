@@ -155,14 +155,13 @@ def setup_button_event_listener(
             },
         )
 
-        # Native triple press re-announcement (system announcement, not value announcement)
+        # Triple press announces the assigned entity — bypasses system announcements,
+        # but respects mute.
         if (press_type == "triple_press"
                 and announce_enabled and tts_entity and media_player
                 and bank_entity and "." in bank_entity):
-            _ann = hass.states.get(f"switch.{suffix}_announcements")
             _mute = hass.states.get(f"switch.{suffix}_mute_announcements")
-            if (_ann and _ann.state == "on"
-                    and not (_mute and _mute.state == "on")):
+            if not (_mute and _mute.state == "on"):
                 _es = hass.states.get(bank_entity)
                 _name = (_es.attributes.get("friendly_name") if _es else None) or bank_entity
                 hass.async_create_task(do_tts(hass, tts_entity, media_player, _name))
