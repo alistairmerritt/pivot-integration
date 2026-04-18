@@ -18,10 +18,12 @@ ANNOUNCEABLE_DOMAINS: frozenset[str] = frozenset(
 def format_value_announcement(hass: HomeAssistant, bank_entity: str, bank_value: float) -> str | None:
     """Build a TTS message string for a value announcement.
 
-    Uses the knob position (bank_value) for light/fan/media_player/cover since
-    the entity may still be transitioning at announcement time. For climate and
-    cover, reads the actual attribute value post-debounce so the spoken
-    temperature/position reflects what the entity confirmed, not the knob target.
+    Uses the knob position (bank_value) as the source of truth for all domains
+    where the integration controls a continuous range. The entity attribute is
+    intentionally NOT used for climate or cover: the announcement fires ~600 ms
+    after the last knob tick, but the service call is debounced to 400 ms, leaving
+    only ~200 ms for the entity to confirm — not enough for cloud devices. Announcing
+    from bank_value means the spoken value always matches what was just commanded.
     """
     if not bank_entity or "." not in bank_entity:
         return None
@@ -32,15 +34,24 @@ def format_value_announcement(hass: HomeAssistant, bank_entity: str, bank_value:
     if entity_state is None or entity_state.state in ("unavailable", "unknown"):
         return None
     if domain == "climate":
-        temp = entity_state.attributes.get("temperature")
-        if temp is None:
+        # Compute the target temperature from bank_value using the entity's
+        # actual min/max range — same calculation as entity_mappings.py.
+        try:
+            min_temp = float(entity_state.attributes.get("min_temp", 16))
+            max_temp = float(entity_state.attributes.get("max_temp", 30))
+            target = min_temp + (bank_value / 100.0) * (max_temp - min_temp)
+            target = max(min_temp, min(max_temp, target))
+        except (TypeError, ValueError):
             return None
-        return f"Temperature {round(float(temp))} degrees."
+        return f"Temperature {round(target)} degrees."
     if domain == "cover":
-        pos = entity_state.attributes.get("current_position")
-        if pos is None:
-            return None
-        return f"{round(float(pos))} percent open."
+        # bank_value is the commanded position (0 = closed, 100 = open).
+        pos = round(bank_value)
+        if pos == 0:
+            return "Closing."
+        if pos == 100:
+            return "Opening."
+        return f"{pos} percent open."
     if domain == "light":
         return f"Brightness {round(bank_value)} percent."
     if domain == "media_player":
