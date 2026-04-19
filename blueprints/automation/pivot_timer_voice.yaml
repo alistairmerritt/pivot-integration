@@ -30,9 +30,15 @@ blueprint:
     *"What's left on the timer?"*, *"What's the timer at?"*, *"Timer status"*
 
     **Before using this blueprint:**
-    1. Complete the setup steps for the **Pivot - Timer Control** blueprint first.
+    1. Enable the timer helper entities on your Pivot device
+       (`number.{suffix}_timer_duration`, `select.{suffix}_timer_state`, `text.{suffix}_timer_end`).
     2. Ensure your Assist pipeline has `prefer_local_intents` enabled so voice
        commands are matched locally before being passed to an LLM agent.
+
+    A bank does not need to be assigned to `timer` to use this blueprint —
+    voice control and TTS feedback work independently. If a bank is assigned to
+    `timer` (e.g. because **Pivot - Timer Control** is also installed), the LED
+    gauge will stay in sync automatically.
   domain: automation
   input:
     suffix:
@@ -230,8 +236,6 @@ actions:
       # ── START ──────────────────────────────────────────────────────────────
       - conditions:
           - condition: template
-            value_template: "{{ bank | int(0) > 0 }}"
-          - condition: template
             value_template: >
               {{ trigger.id in ['start', 'start_combined', 'start_15', 'start_30', 'start_90', 'start_150'] }}
           - condition: template
@@ -257,14 +261,18 @@ actions:
               entity_id: "{{ timer_state_entity }}"
             data:
               option: running
-          - action: number.set_value
-            target:
-              entity_id: "{{ bank_value_entity }}"
-            data:
-              value: 100
-          - action: switch.turn_off
-            target:
-              entity_id: "{{ dim_switch_entity }}"
+          - if:
+              - condition: template
+                value_template: "{{ bank | int(0) > 0 }}"
+            then:
+              - action: number.set_value
+                target:
+                  entity_id: "{{ bank_value_entity }}"
+                data:
+                  value: 100
+              - action: switch.turn_off
+                target:
+                  entity_id: "{{ dim_switch_entity }}"
           - if:
               - condition: template
                 value_template: "{{ tts_entity | length > 0 and not is_state(mute_entity, 'on') }}"
@@ -288,8 +296,6 @@ actions:
       # ── START — already running ────────────────────────────────────────────
       - conditions:
           - condition: template
-            value_template: "{{ bank | int(0) > 0 }}"
-          - condition: template
             value_template: >
               {{ trigger.id in ['start', 'start_combined', 'start_15', 'start_30', 'start_90', 'start_150'] }}
           - condition: template
@@ -308,8 +314,6 @@ actions:
 
       # ── PAUSE ──────────────────────────────────────────────────────────────
       - conditions:
-          - condition: template
-            value_template: "{{ bank | int(0) > 0 }}"
           - condition: template
             value_template: "{{ trigger.id == 'pause' }}"
           - condition: template
@@ -333,16 +337,20 @@ actions:
               entity_id: "{{ timer_state_entity }}"
             data:
               option: paused
-          - action: switch.turn_on
-            target:
-              entity_id: "{{ dim_switch_entity }}"
-          - action: number.set_value
-            target:
-              entity_id: "{{ bank_value_entity }}"
-            data:
-              value: >
-                {% set dur_secs = states(duration_entity) | int(25) * 60 | float %}
-                {{ [0, [100, (remaining_secs | float / dur_secs * 100) | round(0) | int] | min] | max if dur_secs > 0 else 0 }}
+          - if:
+              - condition: template
+                value_template: "{{ bank | int(0) > 0 }}"
+            then:
+              - action: switch.turn_on
+                target:
+                  entity_id: "{{ dim_switch_entity }}"
+              - action: number.set_value
+                target:
+                  entity_id: "{{ bank_value_entity }}"
+                data:
+                  value: >
+                    {% set dur_secs = states(duration_entity) | int(25) * 60 | float %}
+                    {{ [0, [100, (remaining_secs | float / dur_secs * 100) | round(0) | int] | min] | max if dur_secs > 0 else 0 }}
           - if:
               - condition: template
                 value_template: "{{ tts_entity | length > 0 and not is_state(mute_entity, 'on') }}"
@@ -368,8 +376,6 @@ actions:
       # ── RESUME ─────────────────────────────────────────────────────────────
       - conditions:
           - condition: template
-            value_template: "{{ bank | int(0) > 0 }}"
-          - condition: template
             value_template: "{{ trigger.id == 'resume' }}"
           - condition: template
             value_template: "{{ is_state(timer_state_entity, 'paused') }}"
@@ -386,9 +392,13 @@ actions:
               entity_id: "{{ timer_state_entity }}"
             data:
               option: running
-          - action: switch.turn_off
-            target:
-              entity_id: "{{ dim_switch_entity }}"
+          - if:
+              - condition: template
+                value_template: "{{ bank | int(0) > 0 }}"
+            then:
+              - action: switch.turn_off
+                target:
+                  entity_id: "{{ dim_switch_entity }}"
           - if:
               - condition: template
                 value_template: "{{ tts_entity | length > 0 and not is_state(mute_entity, 'on') }}"
@@ -403,8 +413,6 @@ actions:
       # ── CANCEL ─────────────────────────────────────────────────────────────
       - conditions:
           - condition: template
-            value_template: "{{ bank | int(0) > 0 }}"
-          - condition: template
             value_template: "{{ trigger.id == 'cancel' }}"
           - condition: template
             value_template: >
@@ -416,19 +424,23 @@ actions:
               entity_id: "{{ timer_end_entity }}"
             data:
               value: ""
-          - action: number.set_value
-            target:
-              entity_id: "{{ bank_value_entity }}"
-            data:
-              value: 0
           - action: select.select_option
             target:
               entity_id: "{{ timer_state_entity }}"
             data:
               option: idle
-          - action: switch.turn_on
-            target:
-              entity_id: "{{ dim_switch_entity }}"
+          - if:
+              - condition: template
+                value_template: "{{ bank | int(0) > 0 }}"
+            then:
+              - action: number.set_value
+                target:
+                  entity_id: "{{ bank_value_entity }}"
+                data:
+                  value: 0
+              - action: switch.turn_on
+                target:
+                  entity_id: "{{ dim_switch_entity }}"
           - if:
               - condition: template
                 value_template: "{{ tts_entity | length > 0 and not is_state(mute_entity, 'on') }}"
@@ -442,8 +454,6 @@ actions:
 
       # ── DISMISS (alerting) ─────────────────────────────────────────────────
       - conditions:
-          - condition: template
-            value_template: "{{ bank | int(0) > 0 }}"
           - condition: template
             value_template: "{{ trigger.id == 'dismiss' }}"
           - condition: template
