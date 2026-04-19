@@ -7,14 +7,15 @@ blueprint:
     that automation.
 
     **Supported commands:**
-    - *"Set a 25 minute timer"* — sets duration and starts
-    - *"Start timer"* — starts with the current duration
-    - *"Pause timer"* / *"Resume timer"* / *"Continue timer"*
-    - *"Cancel timer"* / *"Stop timer"* / *"Reset timer"*
+    - *"Set a 25 minute timer"* / *"Start a 25 minute timer"* — sets duration and starts
+    - *"Start timer"* / *"Set timer"* — starts with the current duration
+    - *"Pause timer"* / *"Pause the timer"* / *"Resume timer"* / *"Resume the timer"*
+    - *"Cancel timer"* / *"Cancel the timer"* / *"Stop timer"* / *"Reset timer"*
     - *"Dismiss timer"* / *"Stop the alarm"*
+    - *"How long is left on the timer?"* / *"How much time is left?"* / *"What's the timer at?"*
 
     **Before using this blueprint:**
-    1. Complete the setup steps for the **Pivot — Timer** blueprint first.
+    1. Complete the setup steps for the **Pivot - Timer** blueprint first.
     2. Ensure your Assist pipeline has `prefer_local_intents` enabled so voice
        commands are matched locally before being passed to an LLM agent.
   domain: automation
@@ -80,39 +81,58 @@ triggers:
   - trigger: conversation
     command:
       - "start timer"
+      - "set timer"
       - "start a {duration} minute timer"
       - "start a {duration} hour timer"
       - "set a {duration} minute timer"
       - "set a {duration} hour timer"
+      - "set timer for {duration} minutes"
+      - "set timer for {duration} hours"
     id: start
   - trigger: conversation
     command:
       - "pause timer"
+      - "pause the timer"
     id: pause
   - trigger: conversation
     command:
       - "resume timer"
+      - "resume the timer"
       - "continue timer"
+      - "continue the timer"
       - "unpause timer"
+      - "unpause the timer"
     id: resume
   - trigger: conversation
     command:
       - "cancel timer"
+      - "cancel the timer"
       - "stop timer"
+      - "stop the timer"
       - "reset timer"
+      - "reset the timer"
     id: cancel
   - trigger: conversation
     command:
       - "dismiss timer"
+      - "dismiss the timer"
       - "stop the alarm"
     id: dismiss
+  - trigger: conversation
+    command:
+      - "how long is left on the timer"
+      - "how much time is left"
+      - "how much time is left on the timer"
+      - "what's the timer at"
+      - "timer status"
+    id: status
 
 actions:
-  - condition: template
-    value_template: "{{ bank | int(0) > 0 }}"
   - choose:
       # ── START ──────────────────────────────────────────────────────────────
       - conditions:
+          - condition: template
+            value_template: "{{ bank | int(0) > 0 }}"
           - condition: template
             value_template: "{{ trigger.id == 'start' }}"
           - condition: template
@@ -180,6 +200,8 @@ actions:
       # ── START — already running ────────────────────────────────────────────
       - conditions:
           - condition: template
+            value_template: "{{ bank | int(0) > 0 }}"
+          - condition: template
             value_template: "{{ trigger.id == 'start' }}"
           - condition: template
             value_template: "{{ not is_state(timer_state_entity, 'idle') }}"
@@ -197,6 +219,8 @@ actions:
 
       # ── PAUSE ──────────────────────────────────────────────────────────────
       - conditions:
+          - condition: template
+            value_template: "{{ bank | int(0) > 0 }}"
           - condition: template
             value_template: "{{ trigger.id == 'pause' }}"
           - condition: template
@@ -255,6 +279,8 @@ actions:
       # ── RESUME ─────────────────────────────────────────────────────────────
       - conditions:
           - condition: template
+            value_template: "{{ bank | int(0) > 0 }}"
+          - condition: template
             value_template: "{{ trigger.id == 'resume' }}"
           - condition: template
             value_template: "{{ is_state(timer_state_entity, 'paused') }}"
@@ -287,6 +313,8 @@ actions:
 
       # ── CANCEL ─────────────────────────────────────────────────────────────
       - conditions:
+          - condition: template
+            value_template: "{{ bank | int(0) > 0 }}"
           - condition: template
             value_template: "{{ trigger.id == 'cancel' }}"
           - condition: template
@@ -326,6 +354,8 @@ actions:
       # ── DISMISS (alerting) ─────────────────────────────────────────────────
       - conditions:
           - condition: template
+            value_template: "{{ bank | int(0) > 0 }}"
+          - condition: template
             value_template: "{{ trigger.id == 'dismiss' }}"
           - condition: template
             value_template: "{{ is_state(timer_state_entity, 'alerting') and timer_ringing_entity | length > 0 }}"
@@ -333,3 +363,55 @@ actions:
           - action: switch.turn_off
             target:
               entity_id: "{{ timer_ringing_entity }}"
+
+      # ── STATUS ─────────────────────────────────────────────────────────────
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'status' }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ tts_entity | length > 0 and not is_state(mute_entity, 'on') }}"
+            then:
+              - action: tts.speak
+                target:
+                  entity_id: "{{ tts_entity }}"
+                data:
+                  media_player_entity_id: "{{ media_player }}"
+                  message: >
+                    {% set state = states(timer_state_entity) %}
+                    {% if state == 'running' %}
+                      {% set end_str = states(timer_end_entity) %}
+                      {% set remaining = [(as_datetime(end_str) - now()).total_seconds(), 0] | max | int %}
+                      {% set h = (remaining // 3600) | int %}
+                      {% set m = ((remaining % 3600) // 60) | int %}
+                      {% set s = (remaining % 60) | int %}
+                      {% if h > 0 and m > 0 %}
+                        {{ h }} {{ 'hour' if h == 1 else 'hours' }} and {{ m }} {{ 'minute' if m == 1 else 'minutes' }} remaining.
+                      {% elif h > 0 %}
+                        {{ h }} {{ 'hour' if h == 1 else 'hours' }} remaining.
+                      {% elif m > 0 %}
+                        {{ m }} {{ 'minute' if m == 1 else 'minutes' }} remaining.
+                      {% elif s > 0 %}
+                        Less than a minute remaining.
+                      {% else %}
+                        The timer has finished.
+                      {% endif %}
+                    {% elif state == 'paused' %}
+                      {% set remaining = states(timer_end_entity) | replace('P', '') | int(0) %}
+                      {% set h = (remaining // 3600) | int %}
+                      {% set m = ((remaining % 3600) // 60) | int %}
+                      {% if h > 0 and m > 0 %}
+                        Timer is paused. {{ h }} {{ 'hour' if h == 1 else 'hours' }} and {{ m }} {{ 'minute' if m == 1 else 'minutes' }} remaining.
+                      {% elif h > 0 %}
+                        Timer is paused. {{ h }} {{ 'hour' if h == 1 else 'hours' }} remaining.
+                      {% elif m > 0 %}
+                        Timer is paused. {{ m }} {{ 'minute' if m == 1 else 'minutes' }} remaining.
+                      {% else %}
+                        Timer is paused. Less than a minute remaining.
+                      {% endif %}
+                    {% elif state == 'alerting' %}
+                      The timer has finished.
+                    {% else %}
+                      No timer is running.
+                    {% endif %}
