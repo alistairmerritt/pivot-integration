@@ -85,6 +85,9 @@ triggers:
     command:
       - "start timer"
       - "set timer"
+      - "start a timer"
+      - "set a timer"
+      - "set me a timer"
       - "start a {duration} minute timer"
       - "start a {duration} hour timer"
       - "set a {duration} minute timer"
@@ -162,6 +165,7 @@ triggers:
     command:
       - "dismiss timer"
       - "dismiss the timer"
+      - "dismiss alarm"
       - "stop the alarm"
     id: dismiss
 
@@ -170,7 +174,10 @@ triggers:
       - "how long is left on the timer"
       - "how much time is left"
       - "how much time is left on the timer"
+      - "how much time remains"
+      - "how much longer is left"
       - "what's the timer at"
+      - "what's left on the timer"
       - "timer status"
     id: status
 
