@@ -7,12 +7,14 @@ blueprint:
     that automation.
 
     **Supported commands:**
-    - *"Set a 25 minute timer"* / *"Start a 25 minute timer"* — sets duration and starts
+    - *"Set a 25 minute timer"* / *"Start a 25 minute timer"*
+    - *"Set a 1 hour and 30 minute timer"*
+    - *"Set a timer for half an hour"* / *"Set a timer for an hour and a half"*
+    - *"Set a timer for a quarter of an hour"*
     - *"Start timer"* / *"Set timer"* — starts with the current duration
-    - *"Pause timer"* / *"Pause the timer"* / *"Resume timer"* / *"Resume the timer"*
-    - *"Cancel timer"* / *"Cancel the timer"* / *"Stop timer"* / *"Reset timer"*
+    - *"Pause timer"* / *"Resume timer"* / *"Cancel timer"*
     - *"Dismiss timer"* / *"Stop the alarm"*
-    - *"How long is left on the timer?"* / *"How much time is left?"* / *"What's the timer at?"*
+    - *"How long is left on the timer?"* / *"What's the timer at?"*
 
     **Before using this blueprint:**
     1. Complete the setup steps for the **Pivot - Timer Control** blueprint first.
@@ -24,7 +26,7 @@ blueprint:
       name: Device Suffix
       description: >
         Your Pivot device suffix, e.g. `ha_voice_lounge`.
-        Must match the suffix used in the Pivot — Timer automation.
+        Must match the suffix used in the Pivot - Timer Control automation.
       selector:
         text:
 
@@ -78,6 +80,7 @@ mode: queued
 max: 5
 
 triggers:
+  # ── Single-slot duration (minutes or hours) ─────────────────────────────────
   - trigger: conversation
     command:
       - "start timer"
@@ -89,11 +92,52 @@ triggers:
       - "set timer for {duration} minutes"
       - "set timer for {duration} hours"
     id: start
+
+  # ── Combined hours + minutes ────────────────────────────────────────────────
+  - trigger: conversation
+    command:
+      - "start a {hours} hour and {minutes} minute timer"
+      - "set a {hours} hour and {minutes} minute timer"
+      - "set timer for {hours} hours and {minutes} minutes"
+    id: start_combined
+
+  # ── Hardcoded natural duration phrases ──────────────────────────────────────
+  - trigger: conversation
+    command:
+      - "set a quarter hour timer"
+      - "start a quarter hour timer"
+      - "set a timer for a quarter of an hour"
+      - "start a timer for a quarter of an hour"
+    id: start_15
+
+  - trigger: conversation
+    command:
+      - "set a half hour timer"
+      - "start a half hour timer"
+      - "set a timer for half an hour"
+      - "start a timer for half an hour"
+    id: start_30
+
+  - trigger: conversation
+    command:
+      - "set a timer for an hour and a half"
+      - "start a timer for an hour and a half"
+      - "set an hour and a half timer"
+    id: start_90
+
+  - trigger: conversation
+    command:
+      - "set a timer for two and a half hours"
+      - "start a timer for two and a half hours"
+    id: start_150
+
+  # ── Pause / Resume / Cancel / Dismiss / Status ──────────────────────────────
   - trigger: conversation
     command:
       - "pause timer"
       - "pause the timer"
     id: pause
+
   - trigger: conversation
     command:
       - "resume timer"
@@ -103,6 +147,7 @@ triggers:
       - "unpause timer"
       - "unpause the timer"
     id: resume
+
   - trigger: conversation
     command:
       - "cancel timer"
@@ -112,12 +157,14 @@ triggers:
       - "reset timer"
       - "reset the timer"
     id: cancel
+
   - trigger: conversation
     command:
       - "dismiss timer"
       - "dismiss the timer"
       - "stop the alarm"
     id: dismiss
+
   - trigger: conversation
     command:
       - "how long is left on the timer"
@@ -128,36 +175,57 @@ triggers:
     id: status
 
 actions:
+  # Resolve start duration for all start trigger variants
+  - variables:
+      start_duration_mins: >
+        {% set words = {
+          'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+          'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+          'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14,
+          'fifteen': 15, 'sixteen': 16, 'seventeen': 17, 'eighteen': 18,
+          'nineteen': 19, 'twenty': 20, 'twenty-five': 25,
+          'thirty': 30, 'forty': 40, 'forty-five': 45,
+          'fifty': 50, 'sixty': 60, 'ninety': 90
+        } %}
+        {% if trigger.id == 'start_15' %}
+          15
+        {% elif trigger.id == 'start_30' %}
+          30
+        {% elif trigger.id == 'start_90' %}
+          90
+        {% elif trigger.id == 'start_150' %}
+          150
+        {% elif trigger.id == 'start_combined' %}
+          {% set h = trigger.slots.hours | lower | trim %}
+          {% set m = trigger.slots.minutes | lower | trim %}
+          {{ words.get(h, h | int(0)) * 60 + words.get(m, m | int(0)) }}
+        {% elif trigger.id == 'start' and trigger.slots is defined and trigger.slots.duration is defined %}
+          {% set d = trigger.slots.duration | lower | trim %}
+          {{ words.get(d, d | int(0)) }}
+        {% else %}
+          0
+        {% endif %}
+
   - choose:
       # ── START ──────────────────────────────────────────────────────────────
       - conditions:
           - condition: template
             value_template: "{{ bank | int(0) > 0 }}"
           - condition: template
-            value_template: "{{ trigger.id == 'start' }}"
+            value_template: >
+              {{ trigger.id in ['start', 'start_combined', 'start_15', 'start_30', 'start_90', 'start_150'] }}
           - condition: template
             value_template: "{{ is_state(timer_state_entity, 'idle') }}"
         sequence:
           - if:
               - condition: template
-                value_template: "{{ trigger.slots is defined and trigger.slots.duration is defined }}"
+                value_template: "{{ start_duration_mins | int(0) > 0 }}"
             then:
               - action: number.set_value
                 target:
                   entity_id: "{{ duration_entity }}"
                 data:
-                  value: >
-                    {% set words = {
-                      'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
-                      'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
-                      'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14,
-                      'fifteen': 15, 'sixteen': 16, 'seventeen': 17, 'eighteen': 18,
-                      'nineteen': 19, 'twenty': 20, 'twenty-five': 25,
-                      'thirty': 30, 'forty': 40, 'forty-five': 45,
-                      'fifty': 50, 'sixty': 60, 'ninety': 90
-                    } %}
-                    {% set d = trigger.slots.duration | lower | trim %}
-                    {{ words.get(d, d | int(25)) }}
+                  value: "{{ start_duration_mins | int }}"
           - action: text.set_value
             target:
               entity_id: "{{ timer_end_entity }}"
@@ -202,7 +270,8 @@ actions:
           - condition: template
             value_template: "{{ bank | int(0) > 0 }}"
           - condition: template
-            value_template: "{{ trigger.id == 'start' }}"
+            value_template: >
+              {{ trigger.id in ['start', 'start_combined', 'start_15', 'start_30', 'start_90', 'start_150'] }}
           - condition: template
             value_template: "{{ not is_state(timer_state_entity, 'idle') }}"
         sequence:
