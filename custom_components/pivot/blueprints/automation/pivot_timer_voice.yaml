@@ -1,0 +1,335 @@
+blueprint:
+  name: "Pivot - Timer - Voice"
+  description: >
+    Voice control for the Pivot timer. Requires the **Pivot - Timer** blueprint
+    to also be installed and configured for the same device — this blueprint
+    handles voice commands only; the button, gauge, and alarm logic remain in
+    that automation.
+
+    **Supported commands:**
+    - *"Set a 25 minute timer"* — sets duration and starts
+    - *"Start timer"* — starts with the current duration
+    - *"Pause timer"* / *"Resume timer"* / *"Continue timer"*
+    - *"Cancel timer"* / *"Stop timer"* / *"Reset timer"*
+    - *"Dismiss timer"* / *"Stop the alarm"*
+
+    **Before using this blueprint:**
+    1. Complete the setup steps for the **Pivot — Timer** blueprint first.
+    2. Ensure your Assist pipeline has `prefer_local_intents` enabled so voice
+       commands are matched locally before being passed to an LLM agent.
+  domain: automation
+  input:
+    suffix:
+      name: Device Suffix
+      description: >
+        Your Pivot device suffix, e.g. `ha_voice_lounge`.
+        Must match the suffix used in the Pivot — Timer automation.
+      selector:
+        text:
+
+    pivot_device:
+      name: Pivot Device
+      description: >
+        Select your Pivot VPE device. Used to derive the timer ringing switch
+        for alarm dismissal.
+      selector:
+        device:
+          integration: esphome
+
+    tts_entity:
+      name: TTS Entity (optional)
+      description: Text-to-speech entity for spoken announcements. Leave blank to skip.
+      default: ""
+      selector:
+        entity:
+          domain: tts
+          multiple: false
+
+variables:
+  suffix: !input suffix
+  pivot_device: !input pivot_device
+  tts_entity_input: !input tts_entity
+  bank: |
+    {% set ns = namespace(found=0) %}
+    {% for i in range(4) %}
+      {% if states('text.' ~ suffix ~ '_bank_' ~ (i + 1) ~ '_entity') | lower == 'timer' and ns.found == 0 %}
+        {% set ns.found = i + 1 %}
+      {% endif %}
+    {% endfor %}
+    {{ ns.found }}
+  tts_entity: >
+    {{ tts_entity_input if tts_entity_input | length > 0
+       else states('text.' ~ suffix ~ '_tts_entity') }}
+  media_player: "{{ states('text.' ~ suffix ~ '_media_player_entity') }}"
+  mute_entity: switch.{{ suffix }}_mute_announcements
+  timer_state_entity: select.{{ suffix }}_timer_state
+  timer_end_entity: text.{{ suffix }}_timer_end
+  duration_entity: number.{{ suffix }}_timer_duration
+  bank_value_entity: number.{{ suffix }}_bank_{{ bank | int }}_value
+  dim_switch_entity: switch.{{ suffix }}_dim_when_idle
+  timer_ringing_entity: |
+    {{ device_entities(pivot_device)
+       | select('match', 'switch\\..*')
+       | select('search', 'timer_ringing')
+       | list | first | default('') }}
+
+mode: queued
+max: 5
+
+triggers:
+  - trigger: conversation
+    command:
+      - "start timer"
+      - "start a {duration} minute timer"
+      - "start a {duration} hour timer"
+      - "set a {duration} minute timer"
+      - "set a {duration} hour timer"
+    id: start
+  - trigger: conversation
+    command:
+      - "pause timer"
+    id: pause
+  - trigger: conversation
+    command:
+      - "resume timer"
+      - "continue timer"
+      - "unpause timer"
+    id: resume
+  - trigger: conversation
+    command:
+      - "cancel timer"
+      - "stop timer"
+      - "reset timer"
+    id: cancel
+  - trigger: conversation
+    command:
+      - "dismiss timer"
+      - "stop the alarm"
+    id: dismiss
+
+actions:
+  - condition: template
+    value_template: "{{ bank | int(0) > 0 }}"
+  - choose:
+      # ── START ──────────────────────────────────────────────────────────────
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'start' }}"
+          - condition: template
+            value_template: "{{ is_state(timer_state_entity, 'idle') }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ trigger.slots is defined and trigger.slots.duration is defined }}"
+            then:
+              - action: number.set_value
+                target:
+                  entity_id: "{{ duration_entity }}"
+                data:
+                  value: >
+                    {% set words = {
+                      'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+                      'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+                      'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14,
+                      'fifteen': 15, 'sixteen': 16, 'seventeen': 17, 'eighteen': 18,
+                      'nineteen': 19, 'twenty': 20, 'twenty-five': 25,
+                      'thirty': 30, 'forty': 40, 'forty-five': 45,
+                      'fifty': 50, 'sixty': 60, 'ninety': 90
+                    } %}
+                    {% set d = trigger.slots.duration | lower | trim %}
+                    {{ words.get(d, d | int(25)) }}
+          - action: text.set_value
+            target:
+              entity_id: "{{ timer_end_entity }}"
+            data:
+              value: >
+                {{ (now() + timedelta(seconds=states(duration_entity) | int(25) * 60)).isoformat() }}
+          - action: select.select_option
+            target:
+              entity_id: "{{ timer_state_entity }}"
+            data:
+              option: running
+          - action: number.set_value
+            target:
+              entity_id: "{{ bank_value_entity }}"
+            data:
+              value: 100
+          - action: switch.turn_off
+            target:
+              entity_id: "{{ dim_switch_entity }}"
+          - if:
+              - condition: template
+                value_template: "{{ tts_entity | length > 0 and not is_state(mute_entity, 'on') }}"
+            then:
+              - action: tts.speak
+                target:
+                  entity_id: "{{ tts_entity }}"
+                data:
+                  media_player_entity_id: "{{ media_player }}"
+                  message: >
+                    {% set mins = states(duration_entity) | int(25) %}
+                    {% set h = mins // 60 %}{% set m = mins % 60 %}
+                    {% if h > 0 and m > 0 %}
+                      {{ h }} hour and {{ m }} minute timer started.
+                    {% elif h > 0 %}
+                      {{ h }} hour timer started.
+                    {% else %}
+                      {{ m }} minute timer started.
+                    {% endif %}
+
+      # ── START — already running ────────────────────────────────────────────
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'start' }}"
+          - condition: template
+            value_template: "{{ not is_state(timer_state_entity, 'idle') }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ tts_entity | length > 0 and not is_state(mute_entity, 'on') }}"
+            then:
+              - action: tts.speak
+                target:
+                  entity_id: "{{ tts_entity }}"
+                data:
+                  media_player_entity_id: "{{ media_player }}"
+                  message: A timer is already running.
+
+      # ── PAUSE ──────────────────────────────────────────────────────────────
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'pause' }}"
+          - condition: template
+            value_template: "{{ is_state(timer_state_entity, 'running') }}"
+        sequence:
+          - variables:
+              remaining_secs: >
+                {% set end_str = states(timer_end_entity) %}
+                {% if end_str and not end_str.startswith('P') %}
+                  {{ [(as_datetime(end_str) - now()).total_seconds(), 0] | max | int }}
+                {% else %}
+                  0
+                {% endif %}
+          - action: text.set_value
+            target:
+              entity_id: "{{ timer_end_entity }}"
+            data:
+              value: P{{ remaining_secs }}
+          - action: select.select_option
+            target:
+              entity_id: "{{ timer_state_entity }}"
+            data:
+              option: paused
+          - action: switch.turn_on
+            target:
+              entity_id: "{{ dim_switch_entity }}"
+          - action: number.set_value
+            target:
+              entity_id: "{{ bank_value_entity }}"
+            data:
+              value: >
+                {% set dur_secs = states(duration_entity) | int(25) * 60 | float %}
+                {{ [0, [100, (remaining_secs | float / dur_secs * 100) | round(0) | int] | min] | max if dur_secs > 0 else 0 }}
+          - if:
+              - condition: template
+                value_template: "{{ tts_entity | length > 0 and not is_state(mute_entity, 'on') }}"
+            then:
+              - action: tts.speak
+                target:
+                  entity_id: "{{ tts_entity }}"
+                data:
+                  media_player_entity_id: "{{ media_player }}"
+                  message: >
+                    {% set h = (remaining_secs // 3600) | int %}
+                    {% set m = ((remaining_secs % 3600) // 60) | int %}
+                    {% if h > 0 and m > 0 %}
+                      Timer paused. {{ h }} {{ 'hour' if h == 1 else 'hours' }} and {{ m }} {{ 'minute' if m == 1 else 'minutes' }} remaining.
+                    {% elif h > 0 %}
+                      Timer paused. {{ h }} {{ 'hour' if h == 1 else 'hours' }} remaining.
+                    {% elif m > 0 %}
+                      Timer paused. {{ m }} {{ 'minute' if m == 1 else 'minutes' }} remaining.
+                    {% else %}
+                      Timer paused. Less than a minute remaining.
+                    {% endif %}
+
+      # ── RESUME ─────────────────────────────────────────────────────────────
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'resume' }}"
+          - condition: template
+            value_template: "{{ is_state(timer_state_entity, 'paused') }}"
+        sequence:
+          - variables:
+              remaining_secs: "{{ states(timer_end_entity) | replace('P', '') | int(0) }}"
+          - action: text.set_value
+            target:
+              entity_id: "{{ timer_end_entity }}"
+            data:
+              value: "{{ (now() + timedelta(seconds=remaining_secs)).isoformat() }}"
+          - action: select.select_option
+            target:
+              entity_id: "{{ timer_state_entity }}"
+            data:
+              option: running
+          - action: switch.turn_off
+            target:
+              entity_id: "{{ dim_switch_entity }}"
+          - if:
+              - condition: template
+                value_template: "{{ tts_entity | length > 0 and not is_state(mute_entity, 'on') }}"
+            then:
+              - action: tts.speak
+                target:
+                  entity_id: "{{ tts_entity }}"
+                data:
+                  media_player_entity_id: "{{ media_player }}"
+                  message: Timer resumed.
+
+      # ── CANCEL ─────────────────────────────────────────────────────────────
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'cancel' }}"
+          - condition: template
+            value_template: >
+              {{ is_state(timer_state_entity, 'running')
+                 or is_state(timer_state_entity, 'paused') }}
+        sequence:
+          - action: text.set_value
+            target:
+              entity_id: "{{ timer_end_entity }}"
+            data:
+              value: ""
+          - action: number.set_value
+            target:
+              entity_id: "{{ bank_value_entity }}"
+            data:
+              value: 0
+          - action: select.select_option
+            target:
+              entity_id: "{{ timer_state_entity }}"
+            data:
+              option: idle
+          - action: switch.turn_on
+            target:
+              entity_id: "{{ dim_switch_entity }}"
+          - if:
+              - condition: template
+                value_template: "{{ tts_entity | length > 0 and not is_state(mute_entity, 'on') }}"
+            then:
+              - action: tts.speak
+                target:
+                  entity_id: "{{ tts_entity }}"
+                data:
+                  media_player_entity_id: "{{ media_player }}"
+                  message: Timer cancelled.
+
+      # ── DISMISS (alerting) ─────────────────────────────────────────────────
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'dismiss' }}"
+          - condition: template
+            value_template: "{{ is_state(timer_state_entity, 'alerting') and timer_ringing_entity | length > 0 }}"
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: "{{ timer_ringing_entity }}"

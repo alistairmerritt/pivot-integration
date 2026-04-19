@@ -1,5 +1,5 @@
 blueprint:
-  name: "Pivot — Bank Toggle"
+  name: "Pivot - Bank Toggle"
   description: >
     Toggles the entity assigned to the currently active bank on a Pivot device.
 

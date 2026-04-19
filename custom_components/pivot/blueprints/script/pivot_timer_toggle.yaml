@@ -1,5 +1,5 @@
 blueprint:
-  name: "Pivot — Timer Toggle Script"
+  name: "Pivot - Timer Toggle Script"
   description: >
     A shared script for controlling the Pivot timer from a Home Assistant dashboard.
 
