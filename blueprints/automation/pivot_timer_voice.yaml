@@ -7,14 +7,27 @@ blueprint:
     that automation.
 
     **Supported commands:**
-    - *"Set a 25 minute timer"* / *"Start a 25 minute timer"*
-    - *"Set a 1 hour and 30 minute timer"*
-    - *"Set a timer for half an hour"* / *"Set a timer for an hour and a half"*
-    - *"Set a timer for a quarter of an hour"*
-    - *"Start timer"* / *"Set timer"* — starts with the current duration
-    - *"Pause timer"* / *"Resume timer"* / *"Cancel timer"*
-    - *"Dismiss timer"* / *"Stop the alarm"*
-    - *"How long is left on the timer?"* / *"What's the timer at?"*
+
+    Start with a duration:
+    *"Set a 25 minute timer"*, *"Start a 1 hour and 30 minute timer"*,
+    *"Set a timer for half an hour"*, *"Set a timer for an hour and a half"*,
+    *"Set a timer for a quarter of an hour"*, *"Set a timer for two and a half hours"*
+
+    Start with current duration:
+    *"Start timer"*, *"Set timer"*, *"Start a timer"*, *"Set a timer"*, *"Set me a timer"*
+
+    Control:
+    *"Pause timer"* / *"Pause the timer"*,
+    *"Resume timer"* / *"Resume the timer"* / *"Continue timer"*,
+    *"Cancel timer"* / *"Cancel the timer"* / *"Stop timer"* / *"Reset timer"*
+
+    Dismiss alarm:
+    *"Dismiss timer"* / *"Dismiss alarm"* / *"Stop the alarm"*
+
+    Status:
+    *"How long is left on the timer?"*, *"How much time is left?"*,
+    *"How much time remains?"*, *"How much longer is left?"*,
+    *"What's left on the timer?"*, *"What's the timer at?"*, *"Timer status"*
 
     **Before using this blueprint:**
     1. Complete the setup steps for the **Pivot - Timer Control** blueprint first.
