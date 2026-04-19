@@ -1,21 +1,26 @@
 blueprint:
   name: "Pivot - Timer Control"
   description: >
-    Turns a Pivot bank into a countdown timer.
+    Turns a Pivot bank into a Pomodoro-style countdown timer.
 
-    - **Single press** — start if idle, pause if running, resume if paused
-    - **Long press** — cancel and reset the timer (only on the active timer bank)
-    - **Gauge LEDs** — fill when started and drain as the timer counts down
-    - **Finish** — plays the timer alarm, pulses the LED ring, and can optionally speak a finish message
-    - **Dashboard control** — firing `pivot_button_press` from a dashboard button behaves the same as the physical button
+    - **Single press** on the selected bank — start if idle, pause if running, resume if paused. A 3-second cooldown after dismiss or cancel prevents accidental restarts.
+    - **Long press** on the timer bank — cancel and reset the timer. Long press on other banks is ignored, leaving it free for custom actions.
+    - **Gauge** — updates every 30 seconds while the timer is running, draining from 100% to 0% as time runs out. Only active when a bank is assigned.
+    - **Finish** — the device plays the built-in alarm sound and pulses the LED ring (same as the stock VPE timer).
+      Single press or "stop" wake word dismisses the alarm. Firing `pivot_button_press` (e.g. from a dashboard button) also dismisses it. Optionally speaks a TTS message once before the alarm begins.
+    - **TTS** — if a TTS entity is configured, spoken announcements play on start (*"25 minute timer started"*),
+      pause (*"Timer paused. 12 minutes remaining"*), resume (*"Timer resumed"*), and finish.
 
     **Before using this blueprint:**
-    1. Enable the three timer entities on your Pivot device:
-       `number.{device_suffix}_timer_duration`, `select.{device_suffix}_timer_state`, `text.{device_suffix}_timer_end`
-    2. Reserve a bank for the timer in the Pivot configure screen using the **Timer bank** selector
-    3. Set your desired duration on `number.{device_suffix}_timer_duration` (default: 25 minutes)
-
-    TTS announcements are optional and use the TTS service and media player configured in your Pivot integration settings.
+    1. Enable the three timer helper entities on your Pivot device
+       (`number.{suffix}_timer_duration`, `select.{suffix}_timer_state`, `text.{suffix}_timer_end`).
+    2. Optionally, reserve a bank for the timer in the Pivot configure screen (Timer banks selector)
+       and set Bank Number below to match. If no bank is assigned, set Bank Number to `0` — the
+       timer still works fully (alarm fires, TTS announcements play, voice control works), but the
+       LED gauge and physical button control are not available.
+    3. Set your desired duration on `number.{suffix}_timer_duration` (default: 25 minutes).
+    4. Ensure the device has been reflashed to firmware v0.0.11 or later.
+    5. For dashboard alarm dismissal, reflash to v0.0.13 or later (exposes the `timer_ringing` switch).
   domain: automation
   input:
     suffix:
@@ -25,6 +30,19 @@ blueprint:
         All timer entity IDs are derived from this value.
       selector:
         text:
+
+    bank:
+      name: Bank Number
+      description: >
+        The bank reserved for the timer (1–4). Set to `0` if no bank is assigned — the timer
+        alarm, TTS announcements, and voice control all work without a bank, but the LED gauge
+        and physical button control are not available.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 4
+          mode: box
 
     pivot_device:
       name: Pivot Device
@@ -45,6 +63,15 @@ blueprint:
         entity:
           domain: event
 
+    tts_entity:
+      name: TTS Entity (optional)
+      description: Text-to-speech entity for spoken announcements. Leave blank to skip.
+      default: ""
+      selector:
+        entity:
+          domain: tts
+          multiple: false
+
     silent_mode:
       name: Silent Mode (optional)
       description: >
@@ -64,24 +91,18 @@ blueprint:
 
 variables:
   suffix: !input suffix
-  # Derived from whichever bank entity is set to 'timer' — no manual input needed.
-  # Returns 0 if no timer bank is reserved yet (automation is inert until one is set).
-  bank: >
-    {% set ns = namespace(found=0) %}
-    {% for i in range(4) %}
-      {% if states('text.' ~ suffix ~ '_bank_' ~ (i + 1) ~ '_entity') | lower == 'timer' and ns.found == 0 %}
-        {% set ns.found = i + 1 %}
-      {% endif %}
-    {% endfor %}
-    {{ ns.found }}
+  bank: !input bank
   pivot_device: !input pivot_device
+  tts_entity: !input tts_entity
   finish_message: !input finish_message
   silent_mode: !input silent_mode
   # Derived automatically from the suffix — mirrors the main Pivot mute switch
   mute_entity: "switch.{{ suffix }}_mute_announcements"
-  # TTS and media player read from config text entities set in the Pivot integration settings
-  tts_entity: "{{ states('text.' ~ suffix ~ '_tts_entity') }}"
-  media_player: "{{ states('text.' ~ suffix ~ '_media_player_entity') }}"
+  # Derive device entities automatically — works regardless of ESPHome device name
+  media_player: >
+    {{ device_entities(pivot_device)
+       | select('match', 'media_player\\..*')
+       | list | first | default('') }}
   timer_ringing_entity: >
     {{ device_entities(pivot_device)
        | select('match', 'switch\\..*')
@@ -92,19 +113,36 @@ variables:
        | select('match', 'switch\\..*')
        | select('search', 'timer_silent_mode')
        | list | first | default('') }}
+  button_event_entity: >
+    {{ device_entities(pivot_device)
+       | select('match', 'event\\..*')
+       | select('search', 'button')
+       | list | first | default('') }}
   duration_entity: "number.{{ suffix }}_timer_duration"
   timer_state_entity: "select.{{ suffix }}_timer_state"
   timer_end_entity: "text.{{ suffix }}_timer_end"
-  bank_value_entity: "number.{{ suffix }}_bank_{{ bank | int }}_value"
-  bank_entity_text_entity: "text.{{ suffix }}_bank_{{ bank | int }}_entity"
   dim_switch_entity: "switch.{{ suffix }}_dim_when_idle"
+  # Bank-derived entities — empty string when bank = 0 (no bank assigned)
+  bank_value_entity: >
+    {% if bank | int(0) > 0 %}
+      number.{{ suffix }}_bank_{{ bank | int - 1 }}_value
+    {% else %}
+
+    {% endif %}
+  bank_entity_text_entity: >
+    {% if bank | int(0) > 0 %}
+      text.{{ suffix }}_bank_{{ bank | int - 1 }}_entity
+    {% else %}
+
+    {% endif %}
 
 trigger:
-  # Single press on this device — bank matching handled in the action
+  # Single press on the configured bank — start / pause / resume / dismiss
   - trigger: event
     event_type: pivot_button_press
     event_data:
       suffix: !input suffix
+      bank: !input bank
       press_type: single_press
     id: single_press
 
@@ -121,6 +159,7 @@ trigger:
     event_type: pivot_button_press
     event_data:
       suffix: !input suffix
+      bank: !input bank
       press_type: long_press
       bank_entity: timer
     id: long_press
@@ -136,13 +175,6 @@ trigger:
     id: duration_changed
 
 action:
-  # Exit immediately if no timer bank is reserved yet. This covers the edge case
-  # where the automation is created before a bank is assigned to 'timer' in the
-  # Pivot configure screen. The automation becomes active automatically once a
-  # bank is reserved — no blueprint changes needed.
-  - condition: template
-    value_template: "{{ bank | int(0) > 0 }}"
-
   # Discard stale single_press events — prevents queued presses from a
   # previous state firing back-to-back and causing spurious transitions.
   # Long press, gauge_sync, and duration_changed are exempt.
@@ -154,13 +186,14 @@ action:
   - choose:
 
       # ── Single press: start / pause / resume / dismiss ─────────────────────
+      # Only fires when a bank is assigned and that bank is set to 'timer'.
       - conditions:
           - condition: template
             value_template: "{{ trigger.id == 'single_press' }}"
           - condition: template
-            value_template: "{{ trigger.event.data.bank | int == bank | int }}"
-          - condition: template
-            value_template: "{{ states(bank_entity_text_entity) | lower == 'timer' }}"
+            value_template: >
+              {{ bank | int(0) > 0
+                 and states(bank_entity_text_entity) | lower == 'timer' }}
         sequence:
           - choose:
               # Idle → start (3-second cooldown after dismiss or cancel)
@@ -182,14 +215,18 @@ action:
                       entity_id: "{{ timer_state_entity }}"
                     data:
                       option: running
-                  - action: number.set_value
-                    target:
-                      entity_id: "{{ bank_value_entity }}"
-                    data:
-                      value: 100
-                  - action: switch.turn_off
-                    target:
-                      entity_id: "{{ dim_switch_entity }}"
+                  - if:
+                      - condition: template
+                        value_template: "{{ bank | int(0) > 0 }}"
+                    then:
+                      - action: number.set_value
+                        target:
+                          entity_id: "{{ bank_value_entity }}"
+                        data:
+                          value: 100
+                      - action: switch.turn_off
+                        target:
+                          entity_id: "{{ dim_switch_entity }}"
                   - if:
                       - condition: template
                         value_template: "{{ tts_entity | length > 0 and (not mute_entity or not is_state(mute_entity, 'on')) }}"
@@ -234,16 +271,20 @@ action:
                       entity_id: "{{ timer_state_entity }}"
                     data:
                       option: paused
-                  - action: switch.turn_on
-                    target:
-                      entity_id: "{{ dim_switch_entity }}"
-                  - action: number.set_value
-                    target:
-                      entity_id: "{{ bank_value_entity }}"
-                    data:
-                      value: >
-                        {% set dur_secs = states(duration_entity) | int(25) * 60 | float %}
-                        {{ [0, [100, (remaining_secs | float / dur_secs * 100) | round(0) | int] | min] | max if dur_secs > 0 else 0 }}
+                  - if:
+                      - condition: template
+                        value_template: "{{ bank | int(0) > 0 }}"
+                    then:
+                      - action: switch.turn_on
+                        target:
+                          entity_id: "{{ dim_switch_entity }}"
+                      - action: number.set_value
+                        target:
+                          entity_id: "{{ bank_value_entity }}"
+                        data:
+                          value: >
+                            {% set dur_secs = states(duration_entity) | int(25) * 60 | float %}
+                            {{ [0, [100, (remaining_secs | float / dur_secs * 100) | round(0) | int] | min] | max if dur_secs > 0 else 0 }}
                   - if:
                       - condition: template
                         value_template: "{{ tts_entity | length > 0 and (not mute_entity or not is_state(mute_entity, 'on')) }}"
@@ -284,9 +325,13 @@ action:
                       entity_id: "{{ timer_state_entity }}"
                     data:
                       option: running
-                  - action: switch.turn_off
-                    target:
-                      entity_id: "{{ dim_switch_entity }}"
+                  - if:
+                      - condition: template
+                        value_template: "{{ bank | int(0) > 0 }}"
+                    then:
+                      - action: switch.turn_off
+                        target:
+                          entity_id: "{{ dim_switch_entity }}"
                   - if:
                       - condition: template
                         value_template: "{{ tts_entity | length > 0 and (not mute_entity or not is_state(mute_entity, 'on')) }}"
@@ -310,9 +355,9 @@ action:
                     target:
                       entity_id: "{{ timer_ringing_entity }}"
 
-      # ── Long press: cancel and reset gauge ─────────────────────────────────
-      # Only fires when the timer bank is the currently active bank — preserving
-      # long press for custom actions on other banks.
+      # ── Long press: cancel and reset ────────────────────────────────────────
+      # Only fires when a bank is assigned and it is the currently active bank —
+      # preserving long press for custom actions on other banks.
       - conditions:
           - condition: template
             value_template: >
@@ -321,7 +366,8 @@ action:
                       or trigger.to_state.attributes.get('event_type') == 'long_press') }}
           - condition: template
             value_template: >
-              {{ states('number.' ~ suffix ~ '_active_bank') | int == bank | int }}
+              {{ bank | int(0) > 0
+                 and states('number.' ~ suffix ~ '_active_bank') | int == bank | int }}
           - condition: template
             value_template: >
               {{ is_state(timer_state_entity, 'running')
@@ -332,19 +378,23 @@ action:
               entity_id: "{{ timer_end_entity }}"
             data:
               value: ""
-          - action: number.set_value
-            target:
-              entity_id: "{{ bank_value_entity }}"
-            data:
-              value: 0
           - action: select.select_option
             target:
               entity_id: "{{ timer_state_entity }}"
             data:
               option: idle
-          - action: switch.turn_on
-            target:
-              entity_id: "{{ dim_switch_entity }}"
+          - if:
+              - condition: template
+                value_template: "{{ bank | int(0) > 0 }}"
+            then:
+              - action: number.set_value
+                target:
+                  entity_id: "{{ bank_value_entity }}"
+                data:
+                  value: 0
+              - action: switch.turn_on
+                target:
+                  entity_id: "{{ dim_switch_entity }}"
           - if:
               - condition: template
                 value_template: "{{ tts_entity | length > 0 and (not mute_entity or not is_state(mute_entity, 'on')) }}"
@@ -388,18 +438,23 @@ action:
                   entity_id: "{{ timer_end_entity }}"
                 data:
                   value: ""
-              - action: number.set_value
-                target:
-                  entity_id: "{{ bank_value_entity }}"
-                data:
-                  value: 0
 
-              # Switch back to the timer bank so the alarm is visible
-              - action: number.set_value
-                target:
-                  entity_id: "number.{{ suffix }}_active_bank"
-                data:
-                  value: "{{ bank }}"
+              # Bank-specific finish actions — only when a bank is assigned
+              - if:
+                  - condition: template
+                    value_template: "{{ bank | int(0) > 0 }}"
+                then:
+                  - action: number.set_value
+                    target:
+                      entity_id: "{{ bank_value_entity }}"
+                    data:
+                      value: 0
+                  # Switch back to the timer bank so the alarm is visible
+                  - action: number.set_value
+                    target:
+                      entity_id: "number.{{ suffix }}_active_bank"
+                    data:
+                      value: "{{ bank }}"
 
               # Optional one-off TTS announcement before the alarm begins.
               # The 3 s delay lets the announcement finish before the firmware
@@ -452,11 +507,15 @@ action:
 
             else:
               # ── Still running — update gauge ──────────────────────────────
-              - action: number.set_value
-                target:
-                  entity_id: "{{ bank_value_entity }}"
-                data:
-                  value: "{{ progress }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ bank | int(0) > 0 }}"
+                then:
+                  - action: number.set_value
+                    target:
+                      entity_id: "{{ bank_value_entity }}"
+                    data:
+                      value: "{{ progress }}"
 
       # ── Every 30 seconds: auto-cancel if paused for more than 15 minutes ───
       # Prevents the timer from being stuck in paused state indefinitely.
@@ -474,19 +533,23 @@ action:
               entity_id: "{{ timer_end_entity }}"
             data:
               value: ""
-          - action: number.set_value
-            target:
-              entity_id: "{{ bank_value_entity }}"
-            data:
-              value: 0
           - action: select.select_option
             target:
               entity_id: "{{ timer_state_entity }}"
             data:
               option: idle
-          - action: switch.turn_on
-            target:
-              entity_id: "{{ dim_switch_entity }}"
+          - if:
+              - condition: template
+                value_template: "{{ bank | int(0) > 0 }}"
+            then:
+              - action: number.set_value
+                target:
+                  entity_id: "{{ bank_value_entity }}"
+                data:
+                  value: 0
+              - action: switch.turn_on
+                target:
+                  entity_id: "{{ dim_switch_entity }}"
 
       # ── Duration changed (knob turned while idle): announce selected time ──
       - conditions:
