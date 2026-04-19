@@ -1,7 +1,7 @@
 blueprint:
   name: "Pivot - Timer - Voice"
   description: >
-    Voice control for the Pivot timer. Requires the **Pivot - Timer** blueprint
+    Voice control for the Pivot timer. Requires the **Pivot - Timer Control** blueprint
     to also be installed and configured for the same device — this blueprint
     handles voice commands only; the button, gauge, and alarm logic remain in
     that automation.
@@ -15,7 +15,7 @@ blueprint:
     - *"How long is left on the timer?"* / *"How much time is left?"* / *"What's the timer at?"*
 
     **Before using this blueprint:**
-    1. Complete the setup steps for the **Pivot - Timer** blueprint first.
+    1. Complete the setup steps for the **Pivot - Timer Control** blueprint first.
     2. Ensure your Assist pipeline has `prefer_local_intents` enabled so voice
        commands are matched locally before being passed to an LLM agent.
   domain: automation

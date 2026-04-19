@@ -1,5 +1,5 @@
 blueprint:
-  name: "Pivot - Timer"
+  name: "Pivot - Timer Control"
   description: >
     Turns a Pivot bank into a countdown timer.
 
