@@ -1,43 +1,29 @@
 blueprint:
   name: "Pivot - Timer Control"
   description: >
-    Turns a Pivot bank into a Pomodoro-style countdown timer.
+    Manages the Pivot countdown timer — alarm, gauge, and physical button control.
+    Required even if you only use voice control.
 
-    - **Single press** on the selected bank — start if idle, pause if running, resume if paused. A 3-second cooldown after dismiss or cancel prevents accidental restarts.
-    - **Long press** on the timer bank — cancel and reset the timer. Long press on other banks is ignored, leaving it free for custom actions.
-    - **Gauge** — updates every 30 seconds while the timer is running, draining from 100% to 0% as time runs out. Only active when a bank is assigned.
-    - **Finish** — the device plays the built-in alarm sound and pulses the LED ring (same as the stock VPE timer).
-      Single press or "stop" wake word dismisses the alarm. Firing `pivot_button_press` (e.g. from a dashboard button) also dismisses it. Optionally speaks a TTS message once before the alarm begins.
-    - **TTS** — spoken announcements play on start (*"25 minute timer started"*),
-      pause (*"Timer paused. 12 minutes remaining"*), resume (*"Timer resumed"*), and finish.
-      Uses the TTS entity configured in Pivot device settings automatically.
+    Single press to start, pause, or resume. Long press to cancel (on the timer bank only).
+    TTS announcements use the entity configured in Pivot device settings.
 
-    **Before using this blueprint:**
-    1. Enable the three timer helper entities on your Pivot device
-       (`number.{suffix}_timer_duration`, `select.{suffix}_timer_state`, `text.{suffix}_timer_end`).
-    2. Optionally, reserve a bank for the timer in the Pivot configure screen (Timer banks selector)
-       and set Bank Number below to match. If no bank is assigned, set Bank Number to `0` — the
-       timer still works fully (alarm fires, TTS announcements play, voice control works), but the
-       LED gauge and physical button control are not available.
-    3. Set your desired duration on `number.{suffix}_timer_duration` (default: 25 minutes).
-    4. Ensure the device has been reflashed to firmware v0.0.11 or later.
-    5. For dashboard alarm dismissal, reflash to v0.0.13 or later (exposes the `timer_ringing` switch).
+    **Before creating this automation:** enable the three timer entities on your device
+    (`number.{suffix}_timer_duration`, `select.{suffix}_timer_state`, `text.{suffix}_timer_end`).
+
+    [Full setup guide →](https://alistairmerritt.github.io/pivot/timer/)
   domain: automation
   input:
     suffix:
       name: Device Suffix
-      description: >
-        Your Pivot device suffix, e.g. `ha_voice_lounge`.
-        All timer entity IDs are derived from this value.
+      description: "Your Pivot device suffix, e.g. `ha_voice_lounge`."
       selector:
         text:
 
     bank:
       name: Bank Number
       description: >
-        The bank reserved for the timer (1–4). Set to `0` if no bank is assigned — the timer
-        alarm, TTS announcements, and voice control all work without a bank, but the LED gauge
-        and physical button control are not available.
+        Bank assigned to the timer (1–4), or `0` for no bank.
+        Without a bank the alarm and TTS still work, but the LED gauge and button control are disabled.
       default: 0
       selector:
         number:
@@ -48,8 +34,7 @@ blueprint:
     button_event_entity:
       name: Button Event Entity
       description: >
-        The button press event entity for your Pivot device (e.g. `event.home_assistant_voice_study`).
-        Used to detect long press (cancel timer) directly from the device.
+        The button event entity for this device. Used to detect long press (cancel).
         Find it under Settings → Devices & Services → ESPHome → your device.
       selector:
         entity:
@@ -58,7 +43,7 @@ blueprint:
     timer_ringing_entity:
       name: Timer Ringing Switch
       description: >
-        The `timer_ringing` switch for your Pivot device.
+        The `timer_ringing` switch for this device.
         Find it under Settings → Devices & Services → ESPHome → your device.
       selector:
         entity:

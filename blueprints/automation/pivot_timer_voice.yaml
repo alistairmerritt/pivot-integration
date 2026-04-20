@@ -1,77 +1,35 @@
 blueprint:
   name: "Pivot - Timer - Voice"
   description: >
-    Voice control for the Pivot timer. Requires the **Pivot - Timer Control** blueprint
-    to also be installed and configured for the same device — this blueprint
-    handles voice commands only; the button, gauge, and alarm logic remain in
-    that automation.
+    Voice control for the Pivot timer. **Pivot - Timer Control must also be running** for the alarm to fire.
 
-    **Supported commands:**
+    Say things like *"set a 25 minute timer"*, *"pause the timer"*, *"how much time is left?"*,
+    *"cancel the timer"*, *"dismiss the alarm"*. Seconds, hours, combined durations, and natural
+    phrases like *"half an hour"* and *"quarter of an hour"* are supported.
 
-    Start with a duration:
-    *"Set a 25 minute timer"*, *"Start a 1 hour and 30 minute timer"*,
-    *"Set a timer for half an hour"*, *"Set a timer for an hour and a half"*,
-    *"Set a timer for a quarter of an hour"*, *"Set a timer for two and a half hours"*,
-    *"Set a 30 second timer"*, *"Start a timer for 45 seconds"*
+    **Important:** enable **Prefer local intents** in your Assist pipeline settings so voice commands
+    are matched by this blueprint before being passed to an LLM.
 
-    Start with current duration:
-    *"Start timer"*, *"Set timer"*, *"Start a timer"*, *"Set a timer"*, *"Set me a timer"*
-
-    Control:
-    *"Pause timer"* / *"Pause the timer"*,
-    *"Resume timer"* / *"Resume the timer"* / *"Continue timer"*,
-    *"Cancel timer"* / *"Cancel the timer"* / *"Stop timer"* / *"Reset timer"*
-
-    Dismiss alarm:
-    *"Dismiss timer"* / *"Dismiss alarm"* / *"Stop the alarm"*
-
-    Status:
-    *"How long is left on the timer?"*, *"How much time is left?"*,
-    *"How much time remains?"*, *"How much longer is left?"*,
-    *"What's left on the timer?"*, *"What's the timer at?"*, *"Timer status"*
-
-    **Before using this blueprint:**
-    1. Enable the timer helper entities on your Pivot device
-       (`number.{suffix}_timer_duration`, `select.{suffix}_timer_state`, `text.{suffix}_timer_end`).
-    2. Ensure your Assist pipeline has `prefer_local_intents` enabled so voice
-       commands are matched locally before being passed to an LLM agent.
-
-    A bank does not need to be assigned to `timer` to use this blueprint —
-    voice control and TTS feedback work independently. If a bank is assigned to
-    `timer` (e.g. because **Pivot - Timer Control** is also installed), the LED
-    gauge will stay in sync automatically. For timers under one minute, the gauge
-    will show under a minute remaining but the alarm fires correctly.
+    [Full setup guide and phrase list →](https://alistairmerritt.github.io/pivot/timer/)
   domain: automation
   input:
     suffix:
       name: Device Suffix
-      description: >
-        Your Pivot device suffix, e.g. `ha_voice_lounge`.
-        Must match the suffix used in the Pivot - Timer Control automation.
+      description: "Your Pivot device suffix, e.g. `ha_voice_lounge`. Must match the Timer Control automation."
       selector:
         text:
 
     timer_ringing_entity:
       name: Timer Ringing Switch
       description: >
-        The `timer_ringing` switch for your Pivot device.
+        The `timer_ringing` switch for this device. Used to identify which device spoke the command.
         Find it under Settings → Devices & Services → ESPHome → your device.
       selector:
         entity:
           domain: switch
 
-    tts_entity:
-      name: TTS Entity (optional)
-      description: Text-to-speech entity for spoken announcements. Leave blank to skip.
-      default: ""
-      selector:
-        entity:
-          domain: tts
-          multiple: false
-
 variables:
   suffix: !input suffix
-  tts_entity_input: !input tts_entity
   bank: |
     {% set ns = namespace(found=0) %}
     {% for i in range(4) %}
@@ -80,9 +38,7 @@ variables:
       {% endif %}
     {% endfor %}
     {{ ns.found }}
-  tts_entity: >
-    {{ tts_entity_input if tts_entity_input | length > 0
-       else states('text.' ~ suffix ~ '_tts_entity') }}
+  tts_entity: "{{ states('text.' ~ suffix ~ '_tts_entity') }}"
   media_player: "{{ states('text.' ~ suffix ~ '_media_player_entity') }}"
   mute_entity: switch.{{ suffix }}_mute_announcements
   timer_state_entity: select.{{ suffix }}_timer_state
