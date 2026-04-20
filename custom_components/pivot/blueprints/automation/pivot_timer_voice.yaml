@@ -225,6 +225,14 @@ triggers:
       - "timer status"
     id: status
 
+conditions:
+  # Only run when the command came from this specific Pivot device.
+  # Both Timer - Voice automations share the same conversation triggers and
+  # the same pipeline — without this guard, any spoken timer command fires
+  # both automations simultaneously, starting timers on all devices at once.
+  - condition: template
+    value_template: "{{ trigger.device_id == pivot_device }}"
+
 actions:
   # Resolve start duration in total seconds for all start trigger variants.
   # Returns 0 for 'start' (no duration — use current timer_duration).

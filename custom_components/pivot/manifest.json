@@ -1,7 +1,7 @@
 {
   "domain": "pivot",
   "name": "Pivot",
-  "version": "0.0.85",
+  "version": "0.0.86",
   "config_flow": true,
   "integration_type": "device",
   "documentation": "https://alistairmerritt.github.io/pivot",
