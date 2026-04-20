@@ -54,11 +54,19 @@ blueprint:
     pivot_device:
       name: Pivot Device
       description: >
-        Select your Pivot VPE device. Used to derive the timer ringing switch
-        for alarm dismissal.
+        Select your Pivot VPE device. Used to derive the media player for TTS announcements.
       selector:
         device:
           integration: esphome
+
+    timer_ringing_entity:
+      name: Timer Ringing Switch
+      description: >
+        The `timer_ringing` switch for your Pivot device.
+        Find it under Settings → Devices & Services → ESPHome → your device.
+      selector:
+        entity:
+          domain: switch
 
     tts_entity:
       name: TTS Entity (optional)
@@ -91,11 +99,7 @@ variables:
   duration_entity: number.{{ suffix }}_timer_duration
   bank_value_entity: number.{{ suffix }}_bank_{{ bank | int }}_value
   dim_switch_entity: switch.{{ suffix }}_dim_when_idle
-  timer_ringing_entity: |
-    {{ device_entities(pivot_device)
-       | select('match', 'switch\\..*')
-       | select('search', 'timer_ringing')
-       | list | first | default('') }}
+  timer_ringing_entity: !input timer_ringing_entity
 
 mode: queued
 max: 5

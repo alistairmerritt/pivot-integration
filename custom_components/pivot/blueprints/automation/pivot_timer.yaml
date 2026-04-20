@@ -63,6 +63,25 @@ blueprint:
         entity:
           domain: event
 
+    timer_ringing_entity:
+      name: Timer Ringing Switch
+      description: >
+        The `timer_ringing` switch for your Pivot device.
+        Find it under Settings → Devices & Services → ESPHome → your device.
+      selector:
+        entity:
+          domain: switch
+
+    timer_silent_mode_entity:
+      name: Timer Silent Mode Switch (optional)
+      description: >
+        The `timer_silent_mode` switch for your Pivot device. Only available on firmware
+        v0.0.14 or later. Leave blank if your device does not have this switch.
+      default: ""
+      selector:
+        entity:
+          domain: switch
+
     tts_entity:
       name: TTS Entity (optional)
       description: Text-to-speech entity for spoken announcements. Leave blank to skip.
@@ -98,20 +117,12 @@ variables:
   silent_mode: !input silent_mode
   # Derived automatically from the suffix — mirrors the main Pivot mute switch
   mute_entity: "switch.{{ suffix }}_mute_announcements"
-  # Derive device entities automatically — works regardless of ESPHome device name
+  timer_ringing_entity: !input timer_ringing_entity
+  timer_silent_mode_entity: !input timer_silent_mode_entity
+  # Derive media player from device — entity ID varies by ESPHome device name
   media_player: >
     {{ device_entities(pivot_device)
        | select('match', 'media_player\\..*')
-       | list | first | default('') }}
-  timer_ringing_entity: >
-    {{ device_entities(pivot_device)
-       | select('match', 'switch\\..*')
-       | select('search', 'timer_ringing')
-       | list | first | default('') }}
-  timer_silent_mode_entity: >
-    {{ device_entities(pivot_device)
-       | select('match', 'switch\\..*')
-       | select('search', 'timer_silent_mode')
        | list | first | default('') }}
   button_event_entity: >
     {{ device_entities(pivot_device)
