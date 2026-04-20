@@ -51,14 +51,6 @@ blueprint:
       selector:
         text:
 
-    pivot_device:
-      name: Pivot Device
-      description: >
-        Select your Pivot VPE device. Used to derive the media player for TTS announcements.
-      selector:
-        device:
-          integration: esphome
-
     timer_ringing_entity:
       name: Timer Ringing Switch
       description: >
@@ -79,7 +71,6 @@ blueprint:
 
 variables:
   suffix: !input suffix
-  pivot_device: !input pivot_device
   tts_entity_input: !input tts_entity
   bank: |
     {% set ns = namespace(found=0) %}
@@ -231,7 +222,7 @@ conditions:
   # the same pipeline — without this guard, any spoken timer command fires
   # both automations simultaneously, starting timers on all devices at once.
   - condition: template
-    value_template: "{{ trigger.device_id == pivot_device }}"
+    value_template: "{{ trigger.device_id == device_id(timer_ringing_entity) }}"
 
 actions:
   # Resolve start duration in total seconds for all start trigger variants.

@@ -44,15 +44,6 @@ blueprint:
           max: 4
           mode: box
 
-    pivot_device:
-      name: Pivot Device
-      description: >
-        Select your Pivot VPE device. The media player and timer ringing switch
-        are derived automatically from this device.
-      selector:
-        device:
-          integration: esphome
-
     button_event_entity:
       name: Button Event Entity
       description: >
@@ -111,24 +102,14 @@ blueprint:
 variables:
   suffix: !input suffix
   bank: !input bank
-  pivot_device: !input pivot_device
   tts_entity: !input tts_entity
   finish_message: !input finish_message
   silent_mode: !input silent_mode
-  # Derived automatically from the suffix — mirrors the main Pivot mute switch
   mute_entity: "switch.{{ suffix }}_mute_announcements"
   timer_ringing_entity: !input timer_ringing_entity
   timer_silent_mode_entity: !input timer_silent_mode_entity
-  # Derive media player from device — entity ID varies by ESPHome device name
-  media_player: >
-    {{ device_entities(pivot_device)
-       | select('match', 'media_player\\..*')
-       | list | first | default('') }}
-  button_event_entity: >
-    {{ device_entities(pivot_device)
-       | select('match', 'event\\..*')
-       | select('search', 'button')
-       | list | first | default('') }}
+  button_event_entity: !input button_event_entity
+  media_player: "{{ states('text.' ~ suffix ~ '_media_player_entity') }}"
   duration_entity: "number.{{ suffix }}_timer_duration"
   timer_state_entity: "select.{{ suffix }}_timer_state"
   timer_end_entity: "text.{{ suffix }}_timer_end"
