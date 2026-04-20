@@ -63,16 +63,6 @@ blueprint:
         entity:
           domain: event
 
-    timer_end_entity:
-      name: Timer End Entity
-      description: >
-        The text helper that tracks the countdown end time for this device.
-        Should be `text.{device_suffix}_timer_end` — e.g. `text.ha_voice_lounge_timer_end`.
-        Used to fire the alarm at exactly the right moment.
-      selector:
-        entity:
-          domain: text
-
     tts_entity:
       name: TTS Entity (optional)
       description: Text-to-speech entity for spoken announcements. Leave blank to skip.
@@ -130,7 +120,7 @@ variables:
        | list | first | default('') }}
   duration_entity: "number.{{ suffix }}_timer_duration"
   timer_state_entity: "select.{{ suffix }}_timer_state"
-  timer_end_entity: !input timer_end_entity
+  timer_end_entity: "text.{{ suffix }}_timer_end"
   dim_switch_entity: "switch.{{ suffix }}_dim_when_idle"
   # Bank-derived entities — empty string when bank = 0 (no bank assigned)
   bank_value_entity: >
@@ -177,13 +167,6 @@ trigger:
   - trigger: time_pattern
     seconds: "/30"
     id: gauge_sync
-
-  # Fires at the exact moment stored in timer_end — re-schedules automatically
-  # when the entity value changes (start, resume). Does not fire for P{secs}
-  # or empty values (invalid datetime), so pause and cancel are safe.
-  - trigger: time
-    at: !input timer_end_entity
-    id: timer_expired
 
   - trigger: event
     event_type: pivot_timer_duration_set
@@ -422,73 +405,6 @@ action:
                 data:
                   media_player_entity_id: "{{ media_player }}"
                   message: Timer cancelled.
-
-      # ── Timer expired: fire alarm at the exact scheduled time ──────────────
-      # Primary expiry path. gauge_sync retains a fallback check for robustness
-      # (e.g. HA restart, entity lag) but will be a no-op in the normal case
-      # because timer_state will already be 'alerting' by the time it fires.
-      - conditions:
-          - condition: template
-            value_template: >
-              {{ trigger.id == 'timer_expired'
-                 and is_state(timer_state_entity, 'running') }}
-        sequence:
-          - action: text.set_value
-            target:
-              entity_id: "{{ timer_end_entity }}"
-            data:
-              value: ""
-
-          - if:
-              - condition: template
-                value_template: "{{ bank | int(0) > 0 }}"
-            then:
-              - action: number.set_value
-                target:
-                  entity_id: "{{ bank_value_entity }}"
-                data:
-                  value: 0
-              - action: number.set_value
-                target:
-                  entity_id: "number.{{ suffix }}_active_bank"
-                data:
-                  value: "{{ bank }}"
-
-          - if:
-              - condition: template
-                value_template: "{{ tts_entity | length > 0 and finish_message | length > 0 and (not mute_entity or not is_state(mute_entity, 'on')) }}"
-            then:
-              - action: tts.speak
-                target:
-                  entity_id: "{{ tts_entity }}"
-                data:
-                  media_player_entity_id: "{{ media_player }}"
-                  message: "{{ finish_message }}"
-              - delay:
-                  seconds: 3
-
-          - if:
-              - condition: template
-                value_template: "{{ timer_silent_mode_entity | length > 0 }}"
-            then:
-              - choose:
-                  - conditions:
-                      - condition: template
-                        value_template: "{{ silent_mode }}"
-                    sequence:
-                      - action: switch.turn_on
-                        target:
-                          entity_id: "{{ timer_silent_mode_entity }}"
-                default:
-                  - action: switch.turn_off
-                    target:
-                      entity_id: "{{ timer_silent_mode_entity }}"
-
-          - action: select.select_option
-            target:
-              entity_id: "{{ timer_state_entity }}"
-            data:
-              option: alerting
 
       # ── Every 30 seconds: sync gauge and detect finish ─────────────────────
       - conditions:
