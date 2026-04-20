@@ -11,7 +11,8 @@ blueprint:
     Start with a duration:
     *"Set a 25 minute timer"*, *"Start a 1 hour and 30 minute timer"*,
     *"Set a timer for half an hour"*, *"Set a timer for an hour and a half"*,
-    *"Set a timer for a quarter of an hour"*, *"Set a timer for two and a half hours"*
+    *"Set a timer for a quarter of an hour"*, *"Set a timer for two and a half hours"*,
+    *"Set a 30 second timer"*, *"Start a timer for 45 seconds"*
 
     Start with current duration:
     *"Start timer"*, *"Set timer"*, *"Start a timer"*, *"Set a timer"*, *"Set me a timer"*
@@ -38,7 +39,8 @@ blueprint:
     A bank does not need to be assigned to `timer` to use this blueprint —
     voice control and TTS feedback work independently. If a bank is assigned to
     `timer` (e.g. because **Pivot - Timer Control** is also installed), the LED
-    gauge will stay in sync automatically.
+    gauge will stay in sync automatically. For timers under one minute, the gauge
+    will show under a minute remaining but the alarm fires correctly.
   domain: automation
   input:
     suffix:
@@ -99,7 +101,7 @@ mode: queued
 max: 5
 
 triggers:
-  # ── Single-slot duration (minutes or hours) ─────────────────────────────────
+  # ── No duration — start with current timer_duration ─────────────────────────
   - trigger: conversation
     command:
       - "start timer"
@@ -107,15 +109,34 @@ triggers:
       - "start a timer"
       - "set a timer"
       - "set me a timer"
-      - "start a {duration} minute timer"
-      - "start a {duration} hour timer"
-      - "set a {duration} minute timer"
-      - "set a {duration} hour timer"
-      - "set timer for {duration} minutes"
-      - "set timer for {duration} hours"
     id: start
 
-  # ── Combined hours + minutes ────────────────────────────────────────────────
+  # ── Minute-based ─────────────────────────────────────────────────────────────
+  - trigger: conversation
+    command:
+      - "start a {duration} minute timer"
+      - "set a {duration} minute timer"
+      - "set timer for {duration} minutes"
+    id: start_mins
+
+  # ── Hour-based ───────────────────────────────────────────────────────────────
+  - trigger: conversation
+    command:
+      - "start a {duration} hour timer"
+      - "set a {duration} hour timer"
+      - "set timer for {duration} hours"
+    id: start_hours
+
+  # ── Second-based ─────────────────────────────────────────────────────────────
+  - trigger: conversation
+    command:
+      - "set a {duration} second timer"
+      - "start a {duration} second timer"
+      - "set a timer for {duration} seconds"
+      - "start a timer for {duration} seconds"
+    id: start_secs
+
+  # ── Combined hours + minutes ─────────────────────────────────────────────────
   - trigger: conversation
     command:
       - "start a {hours} hour and {minutes} minute timer"
@@ -123,7 +144,7 @@ triggers:
       - "set timer for {hours} hours and {minutes} minutes"
     id: start_combined
 
-  # ── Hardcoded natural duration phrases ──────────────────────────────────────
+  # ── Hardcoded natural duration phrases ───────────────────────────────────────
   - trigger: conversation
     command:
       - "set a quarter hour timer"
@@ -153,7 +174,7 @@ triggers:
       - "start a timer for two and a half hours"
     id: start_150
 
-  # ── Pause / Resume / Cancel / Dismiss / Status ──────────────────────────────
+  # ── Pause / Resume / Cancel / Dismiss / Status ───────────────────────────────
   - trigger: conversation
     command:
       - "pause timer"
@@ -201,9 +222,10 @@ triggers:
     id: status
 
 actions:
-  # Resolve start duration for all start trigger variants
+  # Resolve start duration in total seconds for all start trigger variants.
+  # Returns 0 for 'start' (no duration — use current timer_duration).
   - variables:
-      start_duration_mins: >
+      start_duration_secs: >
         {% set words = {
           'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
           'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
@@ -213,21 +235,27 @@ actions:
           'thirty': 30, 'forty': 40, 'forty-five': 45,
           'fifty': 50, 'sixty': 60, 'ninety': 90
         } %}
-        {% if trigger.id == 'start_15' %}
-          15
+        {% if trigger.id == 'start_secs' %}
+          {% set d = trigger.slots.duration | lower | trim %}
+          {{ words.get(d, d | int(0)) }}
+        {% elif trigger.id == 'start_mins' %}
+          {% set d = trigger.slots.duration | lower | trim %}
+          {{ words.get(d, d | int(0)) * 60 }}
+        {% elif trigger.id == 'start_hours' %}
+          {% set d = trigger.slots.duration | lower | trim %}
+          {{ words.get(d, d | int(0)) * 3600 }}
+        {% elif trigger.id == 'start_15' %}
+          900
         {% elif trigger.id == 'start_30' %}
-          30
+          1800
         {% elif trigger.id == 'start_90' %}
-          90
+          5400
         {% elif trigger.id == 'start_150' %}
-          150
+          9000
         {% elif trigger.id == 'start_combined' %}
           {% set h = trigger.slots.hours | lower | trim %}
           {% set m = trigger.slots.minutes | lower | trim %}
-          {{ words.get(h, h | int(0)) * 60 + words.get(m, m | int(0)) }}
-        {% elif trigger.id == 'start' and trigger.slots is defined and trigger.slots.duration is defined %}
-          {% set d = trigger.slots.duration | lower | trim %}
-          {{ words.get(d, d | int(0)) }}
+          {{ (words.get(h, h | int(0)) * 60 + words.get(m, m | int(0))) * 60 }}
         {% else %}
           0
         {% endif %}
@@ -237,25 +265,32 @@ actions:
       - conditions:
           - condition: template
             value_template: >
-              {{ trigger.id in ['start', 'start_combined', 'start_15', 'start_30', 'start_90', 'start_150'] }}
+              {{ trigger.id in ['start', 'start_mins', 'start_hours', 'start_secs',
+                                 'start_combined', 'start_15', 'start_30', 'start_90', 'start_150'] }}
           - condition: template
             value_template: "{{ is_state(timer_state_entity, 'idle') }}"
         sequence:
+          # Update timer_duration (minutes) only when the requested time is 60s or more.
+          # Sub-minute timers leave timer_duration at its current value.
           - if:
               - condition: template
-                value_template: "{{ start_duration_mins | int(0) > 0 }}"
+                value_template: "{{ start_duration_secs | int(0) >= 60 }}"
             then:
               - action: number.set_value
                 target:
                   entity_id: "{{ duration_entity }}"
                 data:
-                  value: "{{ start_duration_mins | int }}"
+                  value: "{{ (start_duration_secs | int // 60) }}"
           - action: text.set_value
             target:
               entity_id: "{{ timer_end_entity }}"
             data:
               value: >
-                {{ (now() + timedelta(seconds=states(duration_entity) | int(25) * 60)).isoformat() }}
+                {% if start_duration_secs | int(0) > 0 %}
+                  {{ (now() + timedelta(seconds=start_duration_secs | int)).isoformat() }}
+                {% else %}
+                  {{ (now() + timedelta(seconds=states(duration_entity) | int(25) * 60)).isoformat() }}
+                {% endif %}
           - action: select.select_option
             target:
               entity_id: "{{ timer_state_entity }}"
@@ -283,21 +318,32 @@ actions:
                 data:
                   media_player_entity_id: "{{ media_player }}"
                   message: >
-                    {% set mins = states(duration_entity) | int(25) %}
-                    {% set h = mins // 60 %}{% set m = mins % 60 %}
+                    {% if start_duration_secs | int(0) > 0 %}
+                      {% set total_secs = start_duration_secs | int %}
+                    {% else %}
+                      {% set total_secs = states(duration_entity) | int(25) * 60 %}
+                    {% endif %}
+                    {% set h = (total_secs // 3600) | int %}
+                    {% set m = ((total_secs % 3600) // 60) | int %}
+                    {% set s = (total_secs % 60) | int %}
                     {% if h > 0 and m > 0 %}
                       {{ h }} hour and {{ m }} minute timer started.
                     {% elif h > 0 %}
                       {{ h }} hour timer started.
-                    {% else %}
+                    {% elif m > 0 %}
                       {{ m }} minute timer started.
+                    {% elif s > 0 %}
+                      {{ s }} second timer started.
+                    {% else %}
+                      Timer started.
                     {% endif %}
 
       # ── START — already running ────────────────────────────────────────────
       - conditions:
           - condition: template
             value_template: >
-              {{ trigger.id in ['start', 'start_combined', 'start_15', 'start_30', 'start_90', 'start_150'] }}
+              {{ trigger.id in ['start', 'start_mins', 'start_hours', 'start_secs',
+                                 'start_combined', 'start_15', 'start_30', 'start_90', 'start_150'] }}
           - condition: template
             value_template: "{{ not is_state(timer_state_entity, 'idle') }}"
         sequence:
@@ -363,14 +409,17 @@ actions:
                   message: >
                     {% set h = (remaining_secs // 3600) | int %}
                     {% set m = ((remaining_secs % 3600) // 60) | int %}
+                    {% set s = (remaining_secs % 60) | int %}
                     {% if h > 0 and m > 0 %}
                       Timer paused. {{ h }} {{ 'hour' if h == 1 else 'hours' }} and {{ m }} {{ 'minute' if m == 1 else 'minutes' }} remaining.
                     {% elif h > 0 %}
                       Timer paused. {{ h }} {{ 'hour' if h == 1 else 'hours' }} remaining.
                     {% elif m > 0 %}
                       Timer paused. {{ m }} {{ 'minute' if m == 1 else 'minutes' }} remaining.
+                    {% elif s > 0 %}
+                      Timer paused. {{ s }} {{ 'second' if s == 1 else 'seconds' }} remaining.
                     {% else %}
-                      Timer paused. Less than a minute remaining.
+                      Timer paused.
                     {% endif %}
 
       # ── RESUME ─────────────────────────────────────────────────────────────
@@ -492,7 +541,7 @@ actions:
                       {% elif m > 0 %}
                         {{ m }} {{ 'minute' if m == 1 else 'minutes' }} remaining.
                       {% elif s > 0 %}
-                        Less than a minute remaining.
+                        {{ s }} {{ 'second' if s == 1 else 'seconds' }} remaining.
                       {% else %}
                         The timer has finished.
                       {% endif %}
@@ -500,14 +549,17 @@ actions:
                       {% set remaining = states(timer_end_entity) | replace('P', '') | int(0) %}
                       {% set h = (remaining // 3600) | int %}
                       {% set m = ((remaining % 3600) // 60) | int %}
+                      {% set s = (remaining % 60) | int %}
                       {% if h > 0 and m > 0 %}
                         Timer is paused. {{ h }} {{ 'hour' if h == 1 else 'hours' }} and {{ m }} {{ 'minute' if m == 1 else 'minutes' }} remaining.
                       {% elif h > 0 %}
                         Timer is paused. {{ h }} {{ 'hour' if h == 1 else 'hours' }} remaining.
                       {% elif m > 0 %}
                         Timer is paused. {{ m }} {{ 'minute' if m == 1 else 'minutes' }} remaining.
+                      {% elif s > 0 %}
+                        Timer is paused. {{ s }} {{ 'second' if s == 1 else 'seconds' }} remaining.
                       {% else %}
-                        Timer is paused. Less than a minute remaining.
+                        Timer is paused.
                       {% endif %}
                     {% elif state == 'alerting' %}
                       The timer has finished.
