@@ -31,15 +31,58 @@ fields:
       number:
         min: 1
         max: 4
+  set_duration:
+    description: >
+      Optional. When provided, sets the timer duration (in minutes) and updates
+      the bank value for display — without starting the timer. Used by dashboard
+      preset buttons so the duration is synced even when the bank is not active.
+    required: false
+    default: null
+    selector:
+      number:
+        min: 1
+        max: 1440
+  bank_value:
+    description: >
+      Optional. The bank value (0–100) to write when set_duration is provided.
+      Keeps the gauge display in sync with the chosen duration.
+    required: false
+    default: null
+    selector:
+      number:
+        min: 0
+        max: 100
 
 sequence:
-  - event: pivot_button_press
-    event_data:
-      suffix: "{{ device_suffix }}"
-      bank: "{{ bank }}"
-      press_type: single_press
-      bank_entity: timer
-      control_mode: true
+  - choose:
+      # Duration preset — set timer_duration and bank value without starting
+      - conditions:
+          - condition: template
+            value_template: "{{ set_duration is not none and set_duration | int(0) > 0 }}"
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: "number.{{ device_suffix }}_timer_duration"
+            data:
+              value: "{{ set_duration | int }}"
+          - if:
+              - condition: template
+                value_template: "{{ bank_value is not none }}"
+            then:
+              - action: number.set_value
+                target:
+                  entity_id: "number.{{ device_suffix }}_bank_{{ bank | int }}_value"
+                data:
+                  value: "{{ bank_value | int }}"
+    # Default — fire button press to start / pause / resume / dismiss
+    default:
+      - event: pivot_button_press
+        event_data:
+          suffix: "{{ device_suffix }}"
+          bank: "{{ bank }}"
+          press_type: single_press
+          bank_entity: timer
+          control_mode: true
 
 mode: parallel
 max: 10

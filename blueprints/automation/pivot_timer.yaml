@@ -121,16 +121,6 @@ trigger:
       suffix: !input suffix
     id: duration_changed
 
-  # Dashboard value change while bank is not active — template trigger so the
-  # entity ID can be derived from the suffix + bank inputs at runtime.
-  # Fires when bank_N_value changes; the choose block guards on idle + value > 0.
-  - trigger: template
-    value_template: >
-      {% if bank | int(0) > 0 %}
-        {{ states('number.' ~ suffix ~ '_bank_' ~ bank | int ~ '_value') }}
-      {% endif %}
-    id: dashboard_value_changed
-
 action:
   # Discard stale single_press events — prevents queued presses from a
   # previous state firing back-to-back and causing spurious transitions.
@@ -487,35 +477,6 @@ action:
               - action: switch.turn_on
                 target:
                   entity_id: "{{ dim_switch_entity }}"
-
-      # ── Dashboard value change while bank inactive: sync timer_duration ──────
-      # When bank_N_value is changed from a dashboard card while the timer bank
-      # is not the active bank, the firmware never sees the change and never
-      # updates timer_duration. This branch does that conversion directly so the
-      # next timer start uses the right duration regardless of which bank is active.
-      # Guards: timer must be idle, value must be > 0 (ignores cancel/reset writes).
-      - conditions:
-          - condition: template
-            value_template: >
-              {{ trigger.id == 'dashboard_value_changed'
-                 and bank | int(0) > 0
-                 and is_state(timer_state_entity, 'idle') }}
-          - condition: template
-            value_template: >
-              {{ states('number.' ~ suffix ~ '_bank_' ~ bank | int ~ '_value') | float(0) > 0 }}
-        sequence:
-          - variables:
-              raw_val: >
-                {{ states('number.' ~ suffix ~ '_bank_' ~ bank | int ~ '_value')
-                   | float(0) | round(0) | int }}
-              duration_mins: >
-                {% set presets = {24: 15, 50: 30, 75: 45, 100: 60} %}
-                {{ presets.get(raw_val, (raw_val / 100 * 60) | round(0) | int) | max(1) }}
-          - action: number.set_value
-            target:
-              entity_id: "{{ duration_entity }}"
-            data:
-              value: "{{ duration_mins }}"
 
       # ── Duration changed (knob turned while idle): announce selected time ──
       - conditions:
