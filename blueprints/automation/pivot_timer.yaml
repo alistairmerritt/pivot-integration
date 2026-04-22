@@ -62,8 +62,10 @@ blueprint:
 
     finish_message:
       name: Finish Message (optional)
-      description: Message spoken by TTS once when the timer finishes (before the alarm begins).
-      default: "Timer finished"
+      description: >
+        Message spoken by TTS once when the timer finishes (before the alarm begins).
+        Leave blank to disable the finish announcement.
+      default: ""
       selector:
         text:
 
