@@ -139,16 +139,7 @@ async def sync_value_from_entity(
             else:
                 synced_value = 0.0
 
-    _LOGGER.debug(
-        "Pivot sync: entity=%s domain=%s state=%s brightness=%s vol=%s pct=%s temp=%s pos=%s -> synced_value=%s",
-        entity_id, domain, state.state,
-        state.attributes.get("brightness"),
-        state.attributes.get("volume_level"),
-        state.attributes.get("percentage"),
-        state.attributes.get("temperature"),
-        state.attributes.get("current_position"),
-        synced_value,
-    )
+    _LOGGER.debug("Pivot sync: %s (%s) state=%s -> %s", entity_id, domain, state.state, synced_value)
 
     if synced_value is not None:
         if math.isnan(synced_value) or math.isinf(synced_value):

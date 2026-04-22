@@ -28,12 +28,6 @@ async def async_setup_entry(
 
 
 class PivotNumber(PivotEntity, RestoreNumber):
-    """
-    A number entity for Pivot (bank values, active bank).
-
-    Uses RestoreNumber so the native value is restored correctly after a HA restart.
-    active_bank uses range 1-4 — the firmware is updated to match.
-    """
 
     def __init__(self, definition: dict, config_entry: ConfigEntry) -> None:
         super().__init__(definition, config_entry)

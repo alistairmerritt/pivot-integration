@@ -1,4 +1,4 @@
-"""Bank control listeners: knob turns, bank switching, entity sync, and assignment changes."""
+"""Bank control: knob value application, bank sync, and live entity tracking."""
 from __future__ import annotations
 
 import logging
@@ -60,13 +60,8 @@ def setup_bank_control_listener(
     ]
     active_bank_entity_id = f"number.{suffix}_active_bank"
 
-    # monotonic timestamp of the last time Pivot applied a value to each bank's entity.
-    # Used alongside the parent_id context guard:
-    # - parent_id guard: prevents re-applying the value when a sync write triggers
-    #   _on_bank_value_changed (the write carries parent_id="pivot_sync").
-    # - cooldown: prevents syncing intermediate transition values back to the gauge
-    #   during the period after Pivot issues a service call (e.g. a light fading).
-    # Both guards are needed — they protect against different feedback paths.
+    # Timestamp of last Pivot-initiated service call per bank.
+    # Prevents syncing intermediate transition values back to the gauge (e.g. light fading).
     _entity_apply_cooldown: dict[int, float] = {}
 
     # Pending debounce cancel handles for slow domains (climate, cover, media_player).
@@ -110,12 +105,7 @@ def setup_bank_control_listener(
         if active_bank_idx != bank_idx:
             return
 
-        # Only respond to genuine device pushes (physical knob turns).
-        # Bank value changes from sync_value_from_entity and bank-switch syncs are
-        # issued as HA service calls, so their state change carries a non-None
-        # context.parent_id. Ignoring those prevents pivot_knob_turn from firing
-        # when an external source causes a sync update, and stops the value being
-        # needlessly re-applied to the entity a second time.
+        # Ignore writes from Pivot itself (sync calls carry a non-None parent_id).
         if new_state.context.parent_id is not None:
             return
 
@@ -171,10 +161,6 @@ def setup_bank_control_listener(
             return
 
         if domain in _DEBOUNCE_DOMAINS:
-            # Cancel any pending call for this bank and reschedule.
-            # The actual service call fires once the knob settles (_DEBOUNCE_DELAY_SECS
-            # after the last tick). This prevents flooding cloud-connected devices
-            # (climate, cover, media_player) with rapid commands while turning quickly.
             existing = _apply_debounce_cancels.pop(bank_idx, None)
             if existing:
                 existing()
@@ -195,8 +181,6 @@ def setup_bank_control_listener(
                 hass, _DEBOUNCE_DELAY_SECS, _fire_apply
             )
         else:
-            # Lights, fans, and other fast-response domains: apply immediately
-            # so dimming and speed control feel real-time.
             _entity_apply_cooldown[bank_idx] = time.monotonic()
             hass.async_create_task(
                 apply_value_to_entity(hass, domain, bank_entity, value)
@@ -218,13 +202,7 @@ def setup_bank_control_listener(
             },
         )
 
-        # Native value announcement — debounced 600 ms (matches blueprint behaviour).
-        # Cancels and restarts on each knob turn so only the settled value is spoken.
-        # Note: uses the knob position for the announcement message, not the entity's
-        # actual attribute value, because the entity may still be transitioning.
-        # System announcements (switch.{suffix}_announcements) are independent of this —
-        # value announcements are gated only by switch.{suffix}_bank_N_announce_value
-        # and switch.{suffix}_mute_announcements.
+        # Value announcement — debounced so only the settled value is spoken.
         if announce_enabled and tts_entity and media_player and "." in bank_entity:
             ann_domain = bank_entity.split(".")[0]
             if ann_domain in ANNOUNCEABLE_DOMAINS:
@@ -357,10 +335,6 @@ def setup_bank_control_listener(
         hass.async_create_task(
             sync_value_from_entity(hass, domain, bank_entity, value_entity_id)
         )
-
-    # ── Live entity sync ────────────────────────────────────────────────────
-    # Keeps the LED gauge in sync when an assigned entity is changed externally
-    # (e.g. voice command, another dashboard, or a physical switch).
 
     @callback
     def _on_assigned_entity_changed(event) -> None:

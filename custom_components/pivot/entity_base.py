@@ -32,8 +32,7 @@ class PivotEntity(RestoreEntity):
             self._attr_entity_category = EntityCategory(definition["entity_category"])
         if not definition.get("entity_registry_enabled_default", True):
             self._attr_entity_registry_enabled_default = False
-        # Pin the entity_id explicitly so it matches what the firmware expects
-        # regardless of the device friendly name or entity display name.
+        # Pin entity_id explicitly — auto-generated IDs use the friendly name, not the ESPHome slug.
         if "entity_id" in definition:
             self.entity_id = definition["entity_id"]
 
@@ -41,10 +40,6 @@ class PivotEntity(RestoreEntity):
         esphome_name: str = config_entry.data[CONF_ESPHOME_DEVICE_NAME]
         suffix: str = config_entry.data[CONF_DEVICE_SUFFIX]
 
-        # Sanitise esphome_name before embedding in a URL.
-        # ESPHome device names are hostnames (alphanumeric + hyphens) so
-        # percent-encoding is a no-op in practice, but guards against any
-        # unexpected value from the ESPHome config entry data.
         safe_host = urllib.parse.quote(esphome_name, safe="-.")
 
         self._attr_device_info = DeviceInfo(

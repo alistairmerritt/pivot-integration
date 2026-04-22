@@ -39,10 +39,6 @@ BANK_COLORS_HEX = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Entity ID helpers
-# ---------------------------------------------------------------------------
-
 def make_suffix(esphome_device_name: str) -> str:
     """
     Convert an ESPHome device name into a safe entity ID suffix.
@@ -66,10 +62,6 @@ def entity_id(platform: str, suffix: str, key: str) -> str:
     """
     return f"{platform}.{suffix}_{key}"
 
-
-# ---------------------------------------------------------------------------
-# Entity definitions
-# ---------------------------------------------------------------------------
 
 def get_number_definitions(suffix: str) -> list[dict]:
     """All number entities for one Pivot device."""

@@ -1,4 +1,4 @@
-"""Button event listener, bank toggle, and button entity lookup for Pivot."""
+"""Button press handling for Pivot."""
 from __future__ import annotations
 
 import logging
@@ -35,11 +35,6 @@ async def do_bank_toggle(hass: HomeAssistant, suffix: str, bank_entity: str) -> 
 
 
 def get_button_event_entity(hass: HomeAssistant, device_id: str) -> str | None:
-    """Find the button press event entity for a VPE device.
-
-    Matches the event entity with device_class 'button' on the ESPHome device.
-    Falls back to any event-domain entity on the device if device_class is absent.
-    """
     ent_reg = er.async_get(hass)
     fallback = None
     for entity in er.async_entries_for_device(ent_reg, device_id):
@@ -101,8 +96,7 @@ def setup_button_event_listener(
         if new_state is None:
             return
 
-        # Skip reconnect transitions — entity restores last state when the
-        # ESPHome device comes back online, which would look like a real press.
+        # Skip reconnect transitions (restored state looks like a real press).
         old_state = event.data.get("old_state")
         if old_state is None or old_state.state in ("unavailable", "unknown"):
             _LOGGER.debug(
@@ -118,7 +112,6 @@ def setup_button_event_listener(
             _LOGGER.debug("Pivot: %s fired with no event_type — ignoring", button_entity_id)
             return
 
-        # Resolve active bank and assigned entity
         active_bank_state = hass.states.get(f"number.{suffix}_active_bank")
         try:
             bank_idx = int(float(active_bank_state.state)) - 1 if active_bank_state else 0
@@ -140,7 +133,6 @@ def setup_button_event_listener(
             suffix, press_type, control_mode, bank_idx + 1, bank_entity or "(none)",
         )
 
-        # Perform toggle natively — no blueprint required.
         if press_type == "single_press" and control_mode and bank_entity:
             hass.async_create_task(do_bank_toggle(hass, suffix, bank_entity))
 
@@ -155,8 +147,6 @@ def setup_button_event_listener(
             },
         )
 
-        # Triple press announces the assigned entity — bypasses system announcements,
-        # but respects mute.
         if (press_type == "triple_press"
                 and announce_enabled and tts_entity and media_player
                 and bank_entity and "." in bank_entity):

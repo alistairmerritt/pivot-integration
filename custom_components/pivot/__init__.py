@@ -1,11 +1,4 @@
-"""Pivot integration.
-
-Handles all runtime logic for Pivot devices:
-- Bank control: listens for bank value changes and applies them to assigned entities
-- Bank sync: when active bank changes, reads entity state and syncs value back
-- Bank toggle: performed natively on single_press in control mode; also fires
-  pivot_button_press events for user automations
-"""
+"""Pivot integration."""
 from __future__ import annotations
 
 import logging
@@ -67,11 +60,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.async_create_task(_write_config_text_entities())
 
-    # Debounce cancel handles for native value announcements (bank_idx -> cancel callable)
     _announce_cancels: dict[int, CALLBACK_TYPE] = {}
     hass.data[DOMAIN][entry.entry_id + "_announce_cancels"] = _announce_cancels
 
-    # Set up internal listeners for bank control and bank sync
     unsubs = setup_bank_control_listener(
         hass, entry,
         tts_entity=_tts,
@@ -80,9 +71,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         announce_cancels=_announce_cancels,
     )
 
-    # Set up button event listener separately — handles press events and fires
-    # pivot_button_press on the HA event bus. Kept outside bank_control so each
-    # module has a single, clear responsibility.
     unsub_button = setup_button_event_listener(
         hass, entry,
         tts_entity=_tts,
@@ -94,8 +82,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN][entry.entry_id + "_unsub"] = unsubs
 
-    # Zero bank values for passive domains on startup so the firmware cache
-    # is correct even if HA restarted while a passive entity was assigned.
+    # Zero passive banks on startup so firmware cache is correct after HA restarts.
     for _i in range(NUM_BANKS):
         _text_eid = f"text.{suffix}_bank_{_i + 1}_entity"
         _value_eid = f"number.{suffix}_bank_{_i + 1}_value"
@@ -119,8 +106,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         hass.async_create_task(_zero_if_passive())
 
-    # Set up mirror light listeners — watches assigned lights and mirror switches,
-    # writes hex colour to the bank colour text entity when mirror is enabled.
     unsubs_mirror = setup_mirror_listeners(hass, entry)
     hass.data[DOMAIN][entry.entry_id + "_unsub_mirror"] = unsubs_mirror
 
@@ -132,7 +117,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if management_mode == MANAGEMENT_BLUEPRINTS:
         await install_blueprints(hass, entry)
-    # MANAGEMENT_NEITHER: do nothing
 
     _LOGGER.info("Pivot: set up '%s' (suffix: %s, mode: %s)", friendly_name, suffix, management_mode)
     return True
@@ -140,15 +124,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a Pivot config entry."""
-    # Cancel state change listeners (includes button listener)
     for unsub in hass.data[DOMAIN].pop(entry.entry_id + "_unsub", []):
         unsub()
-
-    # Cancel mirror listeners
     for unsub in hass.data[DOMAIN].pop(entry.entry_id + "_unsub_mirror", []):
         unsub()
-
-    # Cancel any pending value-announcement debounce timers
     for cancel in hass.data[DOMAIN].pop(entry.entry_id + "_announce_cancels", {}).values():
         cancel()
 

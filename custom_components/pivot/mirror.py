@@ -17,15 +17,7 @@ def rgb_to_hex(r: int, g: int, b: int) -> str:
 
 
 def setup_mirror_listeners(hass: HomeAssistant, entry: ConfigEntry) -> list:
-    """Register state listeners for mirror light feature.
-
-    For each bank, if switch.{suffix}_bank_N_mirror_light is on and the bank's
-    assigned entity is an RGB light that is on, write its colour as hex to
-    text.{suffix}_bank_N_color so the firmware picks it up via the existing
-    ha_bank_color_N text sensor sync.
-
-    Returns unsub list.
-    """
+    """Watch assigned lights and mirror switches; write hex colour to bank color entities."""
     suffix = entry.data[CONF_DEVICE_SUFFIX]
     unsubs = []
 
@@ -36,10 +28,6 @@ def setup_mirror_listeners(hass: HomeAssistant, entry: ConfigEntry) -> list:
         color_text_id = make_entity_id("text", suffix, f"bank_{bank + 1}_color")
         configured_text_id = make_entity_id("text", suffix, f"bank_{bank + 1}_configured_color")
 
-        # Always compute the user's configured color from the color picker light.
-        # Write it to bank_N_configured_color regardless of mirror state — this entity
-        # is never overwritten by the mirror listener, so the firmware can always read
-        # the user's chosen color from it (used for Bank Indicator identity colors).
         color_light_id = make_entity_id("light", suffix, f"bank_{bank + 1}_color_light")
         color_light_state = hass.states.get(color_light_id)
         rgb = color_light_state.attributes.get("rgb_color") if color_light_state else None
@@ -90,7 +78,6 @@ def setup_mirror_listeners(hass: HomeAssistant, entry: ConfigEntry) -> list:
 
         hex_color = rgb_to_hex(int(rgb[0]), int(rgb[1]), int(rgb[2]))
 
-        # Check if color text entity already has this value to avoid loops
         current = hass.states.get(color_text_id)
         if current and current.state.upper() == hex_color.upper():
             return
@@ -106,7 +93,6 @@ def setup_mirror_listeners(hass: HomeAssistant, entry: ConfigEntry) -> list:
 
     @callback
     def _on_any_change(event) -> None:
-        """Called when any watched entity changes — recheck all banks."""
         for bank in range(NUM_BANKS):
             _apply_mirror_for_bank(bank)
 
@@ -128,7 +114,6 @@ def setup_mirror_listeners(hass: HomeAssistant, entry: ConfigEntry) -> list:
                 lights.append(state.state)
         return lights
 
-    # Initial check on setup
     for bank in range(NUM_BANKS):
         _apply_mirror_for_bank(bank)
 
