@@ -49,6 +49,17 @@ blueprint:
         entity:
           domain: switch
 
+    switch_to_bank_on_start:
+      name: Switch to timer bank when timer starts
+      description: >
+        When enabled, the device automatically switches to the timer bank whenever
+        the timer starts or resumes — regardless of how it was triggered (voice,
+        dashboard, or physical press). Useful if you want to see the countdown on
+        the device without manually switching banks. Has no effect if no bank is assigned.
+      default: false
+      selector:
+        boolean:
+
     finish_message:
       name: Finish Message (optional)
       description: Message spoken by TTS once when the timer finishes (before the alarm begins).
@@ -60,6 +71,7 @@ variables:
   suffix: !input suffix
   bank: !input bank
   finish_message: !input finish_message
+  switch_to_bank_on_start: !input switch_to_bank_on_start
   mute_entity: "switch.{{ suffix }}_mute_announcements"
   tts_entity: "{{ states('text.' ~ suffix ~ '_tts_entity') }}"
   timer_ringing_entity: !input timer_ringing_entity
@@ -120,6 +132,12 @@ trigger:
     event_data:
       suffix: !input suffix
     id: duration_changed
+
+  # Fires when the timer transitions to running — catches voice, dashboard,
+  # and physical press starts. Used to auto-switch to the timer bank.
+  - trigger: template
+    value_template: "{{ is_state('select.' ~ suffix ~ '_timer_state', 'running') }}"
+    id: timer_running
 
 action:
   # Discard stale single_press events — prevents queued presses from a
@@ -352,6 +370,20 @@ action:
                 data:
                   media_player_entity_id: "{{ media_player }}"
                   message: Timer cancelled.
+
+      # ── Timer started or resumed: switch to timer bank ────────────────────
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ trigger.id == 'timer_running'
+                 and switch_to_bank_on_start
+                 and bank | int(0) > 0 }}
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: "number.{{ suffix }}_active_bank"
+            data:
+              value: "{{ bank }}"
 
       # ── Every 30 seconds: sync gauge and detect finish ─────────────────────
       - conditions:
