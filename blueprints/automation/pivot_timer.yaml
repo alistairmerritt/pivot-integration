@@ -83,6 +83,8 @@ variables:
   timer_state_entity: "select.{{ suffix }}_timer_state"
   timer_end_entity: "text.{{ suffix }}_timer_end"
   dim_switch_entity: "switch.{{ suffix }}_dim_when_idle"
+  show_value_entity: "switch.{{ suffix }}_show_control_value"
+  timer_restore_show_value_entity: "text.{{ suffix }}_timer_restore_show_value"
   # Bank-derived entities — empty string when bank = 0 (no bank assigned)
   bank_value_entity: >
     {% if bank | int(0) > 0 %}
@@ -194,6 +196,14 @@ action:
                       - action: switch.turn_off
                         target:
                           entity_id: "{{ dim_switch_entity }}"
+                      - action: text.set_value
+                        target:
+                          entity_id: "{{ timer_restore_show_value_entity }}"
+                        data:
+                          value: "{{ states(show_value_entity) }}"
+                      - action: switch.turn_on
+                        target:
+                          entity_id: "{{ show_value_entity }}"
                   - if:
                       - condition: template
                         value_template: "{{ tts_entity | length > 0 and (not mute_entity or not is_state(mute_entity, 'on')) }}"
@@ -299,6 +309,9 @@ action:
                       - action: switch.turn_off
                         target:
                           entity_id: "{{ dim_switch_entity }}"
+                      - action: switch.turn_on
+                        target:
+                          entity_id: "{{ show_value_entity }}"
                   - if:
                       - condition: template
                         value_template: "{{ tts_entity | length > 0 and (not mute_entity or not is_state(mute_entity, 'on')) }}"
@@ -362,6 +375,18 @@ action:
               - action: switch.turn_on
                 target:
                   entity_id: "{{ dim_switch_entity }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ states(timer_restore_show_value_entity) == 'off' }}"
+                then:
+                  - action: switch.turn_off
+                    target:
+                      entity_id: "{{ show_value_entity }}"
+              - action: text.set_value
+                target:
+                  entity_id: "{{ timer_restore_show_value_entity }}"
+                data:
+                  value: ""
           - if:
               - condition: template
                 value_template: "{{ tts_entity | length > 0 and (not mute_entity or not is_state(mute_entity, 'on')) }}"
@@ -420,7 +445,6 @@ action:
                 data:
                   value: ""
 
-              # Bank-specific finish actions — only when a bank is assigned
               - if:
                   - condition: template
                     value_template: "{{ bank | int(0) > 0 }}"
@@ -430,12 +454,23 @@ action:
                       entity_id: "{{ bank_value_entity }}"
                     data:
                       value: 0
-                  # Switch back to the timer bank so the alarm is visible
                   - action: number.set_value
                     target:
                       entity_id: "number.{{ suffix }}_active_bank"
                     data:
                       value: "{{ bank }}"
+                  - if:
+                      - condition: template
+                        value_template: "{{ states(timer_restore_show_value_entity) == 'off' }}"
+                    then:
+                      - action: switch.turn_off
+                        target:
+                          entity_id: "{{ show_value_entity }}"
+                  - action: text.set_value
+                    target:
+                      entity_id: "{{ timer_restore_show_value_entity }}"
+                    data:
+                      value: ""
 
               # Optional one-off TTS announcement before the alarm begins.
               # The 3 s delay lets the announcement finish before the firmware
@@ -478,10 +513,6 @@ action:
                     data:
                       value: "{{ progress }}"
 
-      # ── Every 30 seconds: auto-cancel if paused for more than 15 minutes ───
-      # Prevents the timer from being stuck in paused state indefinitely.
-      # Uses the last_changed timestamp of the timer_state entity — which updates
-      # when the state becomes 'paused' — to measure how long the pause has lasted.
       - conditions:
           - condition: template
             value_template: >
@@ -511,6 +542,18 @@ action:
               - action: switch.turn_on
                 target:
                   entity_id: "{{ dim_switch_entity }}"
+              - if:
+                  - condition: template
+                    value_template: "{{ states(timer_restore_show_value_entity) == 'off' }}"
+                then:
+                  - action: switch.turn_off
+                    target:
+                      entity_id: "{{ show_value_entity }}"
+              - action: text.set_value
+                target:
+                  entity_id: "{{ timer_restore_show_value_entity }}"
+                data:
+                  value: ""
 
       # ── Duration changed (knob turned while idle): announce selected time ──
       - conditions:

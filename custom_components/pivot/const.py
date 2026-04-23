@@ -337,7 +337,19 @@ def get_timer_text_definitions(suffix: str) -> list[dict]:
             "initial": "",
             "max_length": 50,
             "entity_registry_enabled_default": False,
-        }
+        },
+        {
+            "platform": "text",
+            "key": "timer_restore_show_value",
+            "unique_id": entity_unique_id(suffix, "timer_restore_show_value"),
+            "entity_id": entity_id("text", suffix, "timer_restore_show_value"),
+            "name": "Timer Restore Show Value",
+            "icon": "mdi:restore",
+            "initial": "",
+            "max_length": 3,
+            "entity_registry_enabled_default": False,
+            "entity_category": "diagnostic",
+        },
     ]
 
 
