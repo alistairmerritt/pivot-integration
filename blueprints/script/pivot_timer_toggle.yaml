@@ -33,6 +33,15 @@ fields:
         max: 4
 
 sequence:
+  - if:
+      - condition: template
+        value_template: "{{ states('number.' ~ device_suffix ~ '_active_bank') | int(0) != bank | int }}"
+    then:
+      - action: number.set_value
+        target:
+          entity_id: "number.{{ device_suffix }}_active_bank"
+        data:
+          value: "{{ bank }}"
   - event: pivot_button_press
     event_data:
       suffix: "{{ device_suffix }}"
