@@ -27,6 +27,10 @@ TIMER_VOICE_URL = (
 
 async def install_blueprints(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Show a one-time setup notification pointing to the blueprint import URLs."""
+    # Only show once — skip if this entry has already been notified.
+    if entry.data.get("setup_notified"):
+        return
+
     suffix = entry.data[CONF_DEVICE_SUFFIX]
     friendly_name = entry.data[CONF_FRIENDLY_NAME]
 
@@ -48,6 +52,9 @@ async def install_blueprints(hass: HomeAssistant, entry: ConfigEntry) -> None:
                 "notification_id": f"pivot_setup_{suffix}",
             },
             blocking=False,
+        )
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, "setup_notified": True}
         )
     except Exception as err:
         _LOGGER.warning(

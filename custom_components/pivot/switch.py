@@ -6,7 +6,8 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CONF_DEVICE_SUFFIX, get_switch_definitions
@@ -41,6 +42,19 @@ class PivotSwitch(PivotEntity, SwitchEntity):
         if last is not None:
             self._attr_is_on = last.state == "on"
         self.async_write_ha_state()
+
+        # Re-publish the restored state once HA has fully started.
+        # The ESPHome firmware subscribes to these entities via WebSocket; if it
+        # connects while HA is still starting up it may receive 'unavailable' and
+        # latch onto that, ignoring the later restore. Republishing after
+        # EVENT_HOMEASSISTANT_STARTED ensures the firmware gets the correct value.
+        @callback
+        def _on_ha_started(_event) -> None:
+            self.async_write_ha_state()
+
+        self.async_on_remove(
+            self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _on_ha_started)
+        )
 
     @property
     def is_on(self) -> bool:
