@@ -110,7 +110,7 @@ Enable in the HA entity registry if you want to use the [Pivot Timer](https://al
 | `light` | Brightness % | Toggle on/off |
 | `media_player` | Volume (0–100%) | Play/pause |
 | `fan` | Speed % | Toggle on/off |
-| `climate` | Temperature (16–30°C) | Toggle on/off |
+| `climate` | Temperature (entity min–max) | Toggle on/off |
 | `cover` | Position % | Toggle open/close |
 | `input_number` / `number` | Value scaled to entity min–max | — |
 | `switch` / `input_boolean` | — | Toggle |
