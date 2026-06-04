@@ -36,7 +36,7 @@ Blueprint files are installed automatically into `/config/blueprints/`. You crea
 ## Prerequisites
 
 1. Your VPE must already be added to HA via the **ESPHome integration**
-2. The device must be running **Pivot firmware** (ESPHome Device Builder 2026.4.0 or later required) — see [pivot-firmware](https://github.com/alistairmerritt/pivot-firmware)
+2. The device must be running **Pivot firmware** (ESPHome Device Builder 2026.5.0 or later required) — see [pivot-firmware](https://github.com/alistairmerritt/pivot-firmware)
 3. **Allow device to perform Home Assistant actions** must be enabled in the ESPHome integration options for your device
 
 ## Installation
