@@ -50,13 +50,7 @@ After installing, restart Home Assistant.
 
 For the full installation and setup process, follow the Pivot documentation:
 
-https://alistairmerritt.github.io/pivot/integration/
-
-Or start from the beginning with the getting started guide:
-
 https://alistairmerritt.github.io/pivot/getting-started/
-
-> **Do not rename Pivot entity IDs.** The firmware and integration build entity IDs from your `device_suffix` at runtime. Renaming any entity ID will break the connection. If you need a friendlier label, change the entity's **Name**, not its **Entity ID**.
 
 ---
 
