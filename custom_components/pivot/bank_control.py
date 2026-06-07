@@ -105,8 +105,8 @@ def setup_bank_control_listener(
         if active_bank_idx != bank_idx:
             return
 
-        # Ignore writes from Pivot itself (sync calls carry a non-None parent_id).
-        if new_state.context.parent_id is not None:
+        # Ignore writes from Pivot itself (sync calls use parent_id="pivot_sync").
+        if new_state.context.parent_id == "pivot_sync":
             return
 
         text_state = hass.states.get(f"text.{suffix}_bank_{bank_idx + 1}_entity")
@@ -127,7 +127,7 @@ def setup_bank_control_listener(
                 return
             try:
                 min_val = float(dur_st.attributes.get("min", 1))
-                max_val = float(dur_st.attributes.get("max", 120))
+                max_val = float(dur_st.attributes.get("max", 60))
                 knob_val = float(new_state.state)
                 duration = round(min_val + (knob_val / 100.0) * (max_val - min_val))
                 duration = max(int(min_val), min(int(max_val), max(1, duration)))
@@ -298,7 +298,7 @@ def setup_bank_control_listener(
                 return
             try:
                 min_val = float(dur_st.attributes.get("min", 1))
-                max_val = float(dur_st.attributes.get("max", 120))
+                max_val = float(dur_st.attributes.get("max", 60))
                 raw = float(dur_st.state)
                 synced = round((raw - min_val) / (max_val - min_val) * 100) if max_val != min_val else 0
                 synced = max(0, min(100, synced))
