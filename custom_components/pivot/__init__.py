@@ -92,6 +92,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: PivotConfigEntry) -> boo
                 continue
             _bank_no = int(_key.split("_")[1]) + 1
             _text_eid = make_entity_id("text", suffix, f"bank_{_bank_no}_entity")
+            # Only seed EMPTY banks. The text entity is the source of truth
+            # for assignments; entries created before seeding existed carry
+            # stale bank keys from initial setup, and overwriting a live
+            # (restored) assignment with them would revert user changes.
+            _current = hass.states.get(_text_eid)
+            if _current is not None and _current.state not in ("", "unknown", "unavailable"):
+                continue
             try:
                 await hass.services.async_call(
                     "text", "set_value",

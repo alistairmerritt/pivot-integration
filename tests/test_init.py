@@ -1,6 +1,10 @@
 """Tests for Pivot setup, teardown, and entity provisioning."""
 from homeassistant.config_entries import ConfigEntryState
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.core import State
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    mock_restore_cache,
+)
 
 from custom_components.pivot.const import DOMAIN
 
@@ -64,5 +68,27 @@ async def test_initial_bank_assignments_seeded(hass):
     assert hass.states.get(f"text.{SUFFIX}_bank_3_entity").state == ""
 
     # Seed keys are stripped after applying
+    assert "bank_0_entity" not in entry.data
+    assert "bank_1_entity" not in entry.data
+
+
+async def test_seed_never_overwrites_live_assignment(hass):
+    """Regression: entries created before seeding existed carry stale
+    bank keys from initial setup. Seeding must never overwrite a live
+    (restored) assignment — the text entity is the source of truth and
+    users may have reassigned banks by editing it directly."""
+    mock_restore_cache(hass, (
+        State(f"text.{SUFFIX}_bank_1_entity", "light.hue_go"),
+    ))
+    data = {**ENTRY_DATA, "bank_0_entity": "light.original", "bank_1_entity": "timer"}
+    entry = MockConfigEntry(domain=DOMAIN, data=data, title="Test VPE")
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # The live assignment wins; the empty bank still gets seeded
+    assert hass.states.get(f"text.{SUFFIX}_bank_1_entity").state == "light.hue_go"
+    assert hass.states.get(f"text.{SUFFIX}_bank_2_entity").state == "timer"
+    # Stale keys are stripped either way, so this can never recur
     assert "bank_0_entity" not in entry.data
     assert "bank_1_entity" not in entry.data
