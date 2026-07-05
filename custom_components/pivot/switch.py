@@ -6,8 +6,7 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CONF_DEVICE_SUFFIX, get_switch_definitions
@@ -42,24 +41,11 @@ class PivotSwitch(PivotEntity, SwitchEntity):
         if last is not None:
             self._attr_is_on = last.state == "on"
         self.async_write_ha_state()
-
-        # Re-publish the restored state once HA has fully started.
-        # The ESPHome firmware subscribes to these entities; if the device
-        # connected while HA was still starting up it may have received
-        # nothing (or 'unavailable') and be left with a stale cached value.
-        # A plain write of an unchanged state emits only a state_reported
-        # event, which the ESPHome integration does NOT forward to the
-        # device — force_update is required so this write emits a real
-        # state_changed event that actually reaches the firmware.
-        @callback
-        def _on_ha_started(_event) -> None:
-            self._attr_force_update = True
-            self.async_write_ha_state()
-            self._attr_force_update = False
-
-        self.async_on_remove(
-            self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _on_ha_started)
-        )
+        # Note: no post-start republish here. Republishing an unchanged
+        # state can never reach the device — the ESPHome integration drops
+        # both same-state events and entity-addition events. Startup
+        # delivery is handled by the explicit pivot_sync_settings push in
+        # device_sync.py instead.
 
     @property
     def is_on(self) -> bool:

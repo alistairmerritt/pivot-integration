@@ -17,6 +17,7 @@ from .const import (
     MANAGEMENT_BLUEPRINTS,
     NUM_BANKS, PASSIVE_DOMAINS, entity_id as make_entity_id,
 )
+from .device_sync import setup_device_sync
 from .entity_mappings import SyncContextTracker
 from .mirror import setup_mirror_listeners
 
@@ -120,6 +121,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: PivotConfigEntry) -> boo
         hass.async_create_task(_zero_if_passive())
 
     data.unsubs.extend(setup_mirror_listeners(hass, entry))
+
+    # Push settings to the device once HA has started — the ESPHome state
+    # subscription alone cannot guarantee delivery across HA restarts.
+    data.unsubs.extend(setup_device_sync(hass, entry))
 
     management_mode = (
         entry.options.get(CONF_MANAGEMENT_MODE)
