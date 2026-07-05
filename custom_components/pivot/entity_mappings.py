@@ -3,10 +3,41 @@ from __future__ import annotations
 
 import logging
 import math
+from collections import OrderedDict
 
 from homeassistant.core import Context, HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class SyncContextTracker:
+    """Tracks the context IDs of Pivot-initiated sync writes.
+
+    When Pivot syncs a bank value number from the real entity state, the
+    resulting state change must not be mistaken for a physical knob turn
+    (which would re-apply the value and fire pivot_knob_turn). Each sync
+    write gets a fresh Context whose ID is recorded here; the knob-turn
+    listener drops any state change whose context ID matches.
+
+    The ID set is bounded so long-running instances don't accumulate
+    context IDs indefinitely.
+    """
+
+    def __init__(self, max_ids: int = 64) -> None:
+        self._ids: OrderedDict[str, None] = OrderedDict()
+        self._max_ids = max_ids
+
+    def new_context(self) -> Context:
+        """Create and record a Context for a sync service call."""
+        ctx = Context()
+        self._ids[ctx.id] = None
+        while len(self._ids) > self._max_ids:
+            self._ids.popitem(last=False)
+        return ctx
+
+    def is_sync_context(self, context: Context | None) -> bool:
+        """Return True if the given context came from a Pivot sync write."""
+        return context is not None and context.id in self._ids
 
 
 async def apply_value_to_entity(
@@ -77,7 +108,8 @@ async def apply_value_to_entity(
 
 
 async def sync_value_from_entity(
-    hass: HomeAssistant, domain: str, entity_id: str, value_entity_id: str
+    hass: HomeAssistant, domain: str, entity_id: str, value_entity_id: str,
+    sync_contexts: SyncContextTracker,
 ) -> None:
     """Read current state from an entity and sync it to the bank value number."""
     state = hass.states.get(entity_id)
@@ -146,11 +178,11 @@ async def sync_value_from_entity(
             _LOGGER.warning("Pivot sync: NaN/inf synced_value for %s, skipping", entity_id)
             return
         synced_value = max(0.0, min(100.0, synced_value))
-        # Pass a context with a parent_id so _on_bank_value_changed's
-        # parent_id guard treats this as a non-physical change and does
-        # not fire pivot_knob_turn (which would trigger value announcements).
+        # Use a tracked context so _on_bank_value_changed recognises this as
+        # a Pivot sync write (non-physical change) and does not fire
+        # pivot_knob_turn (which would trigger value announcements).
         await hass.services.async_call(
             "number", "set_value",
             {"entity_id": value_entity_id, "value": synced_value},
-            context=Context(parent_id="pivot_sync"),
+            context=sync_contexts.new_context(),
         )

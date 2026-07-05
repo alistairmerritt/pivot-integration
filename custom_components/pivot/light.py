@@ -17,7 +17,7 @@ from homeassistant.components.light import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.start import async_at_started
 
 from .const import (
     CONF_DEVICE_SUFFIX,
@@ -110,10 +110,11 @@ class PivotBankColorLight(PivotEntity, LightEntity):
             self._is_on = last_state.state != "off"
 
             @callback
-            def _push_on_startup(_now: object) -> None:
+            def _push_on_startup(_hass: HomeAssistant) -> None:
                 self.hass.async_create_task(self._push_colour())
 
-            # Delay the push so all text entities are ready to receive the value.
-            # Store the cancel handle so it is cleaned up if the entry unloads
-            # before the timer fires.
-            self.async_on_remove(async_call_later(self.hass, 3, _push_on_startup))
+            # Push once Home Assistant has fully started (or immediately if it
+            # already has, e.g. on entry reload) so the colour text entities
+            # exist and the firmware receives the restored value. The unsub is
+            # registered so the push is cancelled if the entry unloads first.
+            self.async_on_remove(async_at_started(self.hass, _push_on_startup))

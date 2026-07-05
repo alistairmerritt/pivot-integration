@@ -5,12 +5,12 @@ import logging
 import time
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import CALLBACK_TYPE, Context, HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 
 from .announcements import ANNOUNCEABLE_DOMAINS, do_tts, format_value_announcement
 from .const import CONF_DEVICE_SUFFIX, NUM_BANKS, PASSIVE_DOMAINS
-from .entity_mappings import apply_value_to_entity, sync_value_from_entity
+from .entity_mappings import SyncContextTracker, apply_value_to_entity, sync_value_from_entity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,6 +30,7 @@ _DEBOUNCE_DELAY_SECS: float = 0.4
 
 def setup_bank_control_listener(
     hass: HomeAssistant, entry: ConfigEntry,
+    sync_contexts: SyncContextTracker,
     tts_entity: str = "",
     media_player: str = "",
     announce_enabled: bool = False,
@@ -105,8 +106,8 @@ def setup_bank_control_listener(
         if active_bank_idx != bank_idx:
             return
 
-        # Ignore writes from Pivot itself (sync calls use parent_id="pivot_sync").
-        if new_state.context.parent_id == "pivot_sync":
+        # Ignore writes from Pivot itself (sync calls carry a tracked context).
+        if sync_contexts.is_sync_context(new_state.context):
             return
 
         text_state = hass.states.get(f"text.{suffix}_bank_{bank_idx + 1}_entity")
@@ -309,7 +310,7 @@ def setup_bank_control_listener(
                 hass.services.async_call(
                     "number", "set_value",
                     {"entity_id": value_entity_id, "value": synced},
-                    context=Context(parent_id="pivot_sync"),
+                    context=sync_contexts.new_context(),
                     blocking=False,
                 )
             )
@@ -333,7 +334,7 @@ def setup_bank_control_listener(
             return
 
         hass.async_create_task(
-            sync_value_from_entity(hass, domain, bank_entity, value_entity_id)
+            sync_value_from_entity(hass, domain, bank_entity, value_entity_id, sync_contexts)
         )
 
     @callback
@@ -360,7 +361,7 @@ def setup_bank_control_listener(
 
             value_entity_id = f"number.{suffix}_bank_{bank + 1}_value"
             hass.async_create_task(
-                sync_value_from_entity(hass, domain, changed_entity_id, value_entity_id)
+                sync_value_from_entity(hass, domain, changed_entity_id, value_entity_id, sync_contexts)
             )
 
     _assigned_entity_unsubs: list = []

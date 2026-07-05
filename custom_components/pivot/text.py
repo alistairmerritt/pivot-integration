@@ -9,7 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, CONF_DEVICE_SUFFIX, get_text_definitions, get_color_text_definitions, get_timer_text_definitions, get_configured_color_text_definitions, get_config_text_definitions
+from .const import CONF_DEVICE_SUFFIX, get_text_definitions, get_color_text_definitions, get_timer_text_definitions, get_configured_color_text_definitions, get_config_text_definitions
 from .entity_base import PivotEntity
 
 _LOGGER = logging.getLogger(__name__)

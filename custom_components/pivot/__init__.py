@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant
@@ -10,12 +11,13 @@ from .bank_control import setup_bank_control_listener
 from .blueprints import install_blueprints
 from .button import setup_button_event_listener
 from .const import (
-    DOMAIN, CONF_DEVICE_SUFFIX, CONF_FRIENDLY_NAME,
+    CONF_DEVICE_SUFFIX, CONF_FRIENDLY_NAME,
     CONF_ANNOUNCEMENTS, CONF_TTS_ENTITY, CONF_MEDIA_PLAYER_ENTITY,
     CONF_MANAGEMENT_MODE,
     MANAGEMENT_BLUEPRINTS,
     NUM_BANKS, PASSIVE_DOMAINS, entity_id as make_entity_id,
 )
+from .entity_mappings import SyncContextTracker
 from .mirror import setup_mirror_listeners
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,14 +25,29 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = ["number", "switch", "text", "binary_sensor", "light", "select"]
 
 
+@dataclass
+class PivotRuntimeData:
+    """Runtime state for one Pivot config entry."""
+
+    # Unsubscribe callbacks for all registered state-change listeners.
+    unsubs: list[CALLBACK_TYPE] = field(default_factory=list)
+    # Pending value-announcement debounce cancel handles, keyed by bank index.
+    announce_cancels: dict[int, CALLBACK_TYPE] = field(default_factory=dict)
+    # Context IDs of Pivot-initiated sync writes (loop prevention).
+    sync_contexts: SyncContextTracker = field(default_factory=SyncContextTracker)
+
+
+PivotConfigEntry = ConfigEntry[PivotRuntimeData]
+
+
 # ---------------------------------------------------------------------------
 # Entry setup / teardown
 # ---------------------------------------------------------------------------
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: PivotConfigEntry) -> bool:
     """Set up Pivot from a config entry."""
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = entry.data
+    data = PivotRuntimeData()
+    entry.runtime_data = data
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -60,16 +77,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.async_create_task(_write_config_text_entities())
 
-    _announce_cancels: dict[int, CALLBACK_TYPE] = {}
-    hass.data[DOMAIN][entry.entry_id + "_announce_cancels"] = _announce_cancels
-
-    unsubs = setup_bank_control_listener(
+    data.unsubs.extend(setup_bank_control_listener(
         hass, entry,
+        sync_contexts=data.sync_contexts,
         tts_entity=_tts,
         media_player=_mp,
         announce_enabled=_announce_enabled,
-        announce_cancels=_announce_cancels,
-    )
+        announce_cancels=data.announce_cancels,
+    ))
 
     unsub_button = setup_button_event_listener(
         hass, entry,
@@ -78,9 +93,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         announce_enabled=_announce_enabled,
     )
     if unsub_button:
-        unsubs.append(unsub_button)
-
-    hass.data[DOMAIN][entry.entry_id + "_unsub"] = unsubs
+        data.unsubs.append(unsub_button)
 
     # Zero passive banks on startup so firmware cache is correct after HA restarts.
     for _i in range(NUM_BANKS):
@@ -106,8 +119,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         hass.async_create_task(_zero_if_passive())
 
-    unsubs_mirror = setup_mirror_listeners(hass, entry)
-    hass.data[DOMAIN][entry.entry_id + "_unsub_mirror"] = unsubs_mirror
+    data.unsubs.extend(setup_mirror_listeners(hass, entry))
 
     management_mode = (
         entry.options.get(CONF_MANAGEMENT_MODE)
@@ -122,16 +134,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: PivotConfigEntry) -> bool:
     """Unload a Pivot config entry."""
-    for unsub in hass.data[DOMAIN].pop(entry.entry_id + "_unsub", []):
+    data = entry.runtime_data
+    for unsub in data.unsubs:
         unsub()
-    for unsub in hass.data[DOMAIN].pop(entry.entry_id + "_unsub_mirror", []):
-        unsub()
-    for cancel in hass.data[DOMAIN].pop(entry.entry_id + "_announce_cancels", {}).values():
+    data.unsubs.clear()
+    for cancel in data.announce_cancels.values():
         cancel()
+    data.announce_cancels.clear()
 
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
-    return unload_ok
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
