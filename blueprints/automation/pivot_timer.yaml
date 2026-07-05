@@ -555,6 +555,39 @@ action:
                 data:
                   value: ""
 
+      # ── Stuck-alert backstop: recover an undismissable 'alerting' state ────
+      # Normally the firmware clears alerting via its timer_ringing callback.
+      # That callback can be lost if the device reboots mid-alarm and Home
+      # Assistant restarted too (the device-side timer_state cache is empty,
+      # so the callback guard never passes) — leaving timer_state stuck on
+      # 'alerting', which also blocks starting any new timer. The firmware
+      # hard-stops every alarm after 15 minutes, so an 'alerting' older than
+      # 16 minutes is unrecoverable device-side and is safely reset here.
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ trigger.id == 'gauge_sync'
+                 and is_state(timer_state_entity, 'alerting')
+                 and (now() - states[timer_state_entity].last_changed).total_seconds() > 960 }}
+        sequence:
+          - action: select.select_option
+            target:
+              entity_id: "{{ timer_state_entity }}"
+            data:
+              option: idle
+          - if:
+              - condition: template
+                value_template: "{{ bank | int(0) > 0 }}"
+            then:
+              - action: number.set_value
+                target:
+                  entity_id: "{{ bank_value_entity }}"
+                data:
+                  value: 0
+              - action: switch.turn_on
+                target:
+                  entity_id: "{{ dim_switch_entity }}"
+
       # ── Duration changed (knob turned while idle): announce selected time ──
       - conditions:
           - condition: template
