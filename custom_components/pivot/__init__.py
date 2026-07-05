@@ -78,6 +78,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: PivotConfigEntry) -> boo
 
     hass.async_create_task(_write_config_text_entities())
 
+    # One-time seed of initial bank assignments from the config flow.
+    # The banks_initial step stores bank_N_entity values in entry.data, but
+    # bank assignments live in the text entities — apply them once, then
+    # strip the keys so a later restart can never overwrite user changes.
+    _seed_keys = [k for k in (f"bank_{i}_entity" for i in range(NUM_BANKS)) if k in entry.data]
+    if _seed_keys:
+        for _key in _seed_keys:
+            _value = entry.data[_key]
+            if not _value:
+                continue
+            _bank_no = int(_key.split("_")[1]) + 1
+            _text_eid = make_entity_id("text", suffix, f"bank_{_bank_no}_entity")
+            try:
+                await hass.services.async_call(
+                    "text", "set_value",
+                    {"entity_id": _text_eid, "value": _value},
+                    blocking=True,
+                )
+            except Exception as err:
+                _LOGGER.warning("Pivot: could not seed bank assignment %s=%s: %s", _text_eid, _value, err)
+        hass.config_entries.async_update_entry(
+            entry, data={k: v for k, v in entry.data.items() if k not in _seed_keys}
+        )
+
     data.unsubs.extend(setup_bank_control_listener(
         hass, entry,
         sync_contexts=data.sync_contexts,

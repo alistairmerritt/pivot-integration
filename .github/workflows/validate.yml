@@ -32,5 +32,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/ruff-action@v3
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          src: custom_components/pivot
+          python-version: "3.14"
+      - run: pip install -r requirements_test.txt
+      - run: pytest -q
