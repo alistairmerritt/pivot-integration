@@ -6,11 +6,10 @@ import logging
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import DOMAIN, CONF_DEVICE_SUFFIX, NUM_BANKS, PASSIVE_DOMAINS, get_binary_sensor_definitions, get_text_definitions
+from .const import CONF_DEVICE_SUFFIX, NUM_BANKS, PASSIVE_DOMAINS, get_binary_sensor_definitions, get_text_definitions
 from .entity_base import PivotEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -54,37 +53,25 @@ class PivotBankPassiveSensor(PivotEntity, BinarySensorEntity):
     ) -> None:
         super().__init__(definition, config_entry)
         self._bank = bank
-        self._text_unique_id = text_definition["unique_id"]
+        # Pinned entity ID of the sibling text entity — addressed by
+        # convention like everywhere else, never via a registry lookup.
+        self._text_entity_id = text_definition["entity_id"]
         self._attr_is_on: bool = False
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
 
-        # Find the text entity that holds this bank's assigned entity ID
-        # and track its state changes so we stay in sync automatically.
-        text_entity_id = self._find_text_entity_id()
-        if text_entity_id:
-            self._update_from_text_state(
-                self.hass.states.get(text_entity_id)
+        # Track the sibling text entity that holds this bank's assigned
+        # entity ID. Platforms are set up concurrently, so the text entity
+        # may not exist yet — the tracker is registered by entity ID and
+        # fires when the entity first appears, making this order-independent.
+        self._update_from_text_state(self.hass.states.get(self._text_entity_id))
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                [self._text_entity_id],
+                self._handle_text_state_change,
             )
-            self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass,
-                    [text_entity_id],
-                    self._handle_text_state_change,
-                )
-            )
-        else:
-            _LOGGER.warning(
-                "Pivot: could not find text entity for bank %d passive sensor "
-                "(unique_id=%s) — passive flag will always read False",
-                self._bank, self._text_unique_id,
-            )
-
-    def _find_text_entity_id(self) -> str | None:
-        """Look up the entity_id of our sibling text entity by unique_id."""
-        return er.async_get(self.hass).async_get_entity_id(
-            "text", DOMAIN, self._text_unique_id
         )
 
     @callback
