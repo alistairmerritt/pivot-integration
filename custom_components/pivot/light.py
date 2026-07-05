@@ -15,9 +15,8 @@ from homeassistant.components.light import (
     LightEntity,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.start import async_at_started
 
 from .const import (
     CONF_DEVICE_SUFFIX,
@@ -101,20 +100,18 @@ class PivotBankColorLight(PivotEntity, LightEntity):
         )
 
     async def async_added_to_hass(self) -> None:
-        """Restore colour from last known state and push it to the firmware."""
+        """Restore colour from the last known state.
+
+        Deliberately does NOT push the restored colour to the text entities:
+        they restore their own state, and bank_N_color may legitimately hold
+        a mirrored light colour that a push would overwrite with the
+        configured colour (losing the mirror state across restarts).
+        Startup reconciliation of display vs configured colour is owned by
+        the mirror listeners in mirror.py.
+        """
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
         if last_state and last_state.attributes.get("rgb_color"):
             rgb = last_state.attributes["rgb_color"]
             self._rgb = (int(rgb[0]), int(rgb[1]), int(rgb[2]))
             self._is_on = last_state.state != "off"
-
-            @callback
-            def _push_on_startup(_hass: HomeAssistant) -> None:
-                self.hass.async_create_task(self._push_colour())
-
-            # Push once Home Assistant has fully started (or immediately if it
-            # already has, e.g. on entry reload) so the colour text entities
-            # exist and the firmware receives the restored value. The unsub is
-            # registered so the push is cancelled if the entry unloads first.
-            self.async_on_remove(async_at_started(self.hass, _push_on_startup))

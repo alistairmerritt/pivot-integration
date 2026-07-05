@@ -44,13 +44,18 @@ class PivotSwitch(PivotEntity, SwitchEntity):
         self.async_write_ha_state()
 
         # Re-publish the restored state once HA has fully started.
-        # The ESPHome firmware subscribes to these entities via WebSocket; if it
-        # connects while HA is still starting up it may receive 'unavailable' and
-        # latch onto that, ignoring the later restore. Republishing after
-        # EVENT_HOMEASSISTANT_STARTED ensures the firmware gets the correct value.
+        # The ESPHome firmware subscribes to these entities; if the device
+        # connected while HA was still starting up it may have received
+        # nothing (or 'unavailable') and be left with a stale cached value.
+        # A plain write of an unchanged state emits only a state_reported
+        # event, which the ESPHome integration does NOT forward to the
+        # device — force_update is required so this write emits a real
+        # state_changed event that actually reaches the firmware.
         @callback
         def _on_ha_started(_event) -> None:
+            self._attr_force_update = True
             self.async_write_ha_state()
+            self._attr_force_update = False
 
         self.async_on_remove(
             self.hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _on_ha_started)
