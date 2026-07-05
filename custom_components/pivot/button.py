@@ -134,7 +134,10 @@ def setup_button_event_listener(
         )
 
         if press_type == "single_press" and control_mode and bank_entity:
-            hass.async_create_task(do_bank_toggle(hass, suffix, bank_entity))
+            entry.async_create_background_task(
+                hass, do_bank_toggle(hass, suffix, bank_entity),
+                name="pivot_bank_toggle",
+            )
 
         hass.bus.async_fire(
             "pivot_button_press",
@@ -154,6 +157,9 @@ def setup_button_event_listener(
             if not (_mute and _mute.state == "on"):
                 _es = hass.states.get(bank_entity)
                 _name = (_es.attributes.get("friendly_name") if _es else None) or bank_entity
-                hass.async_create_task(do_tts(hass, tts_entity, media_player, _name))
+                entry.async_create_background_task(
+                    hass, do_tts(hass, tts_entity, media_player, _name),
+                    name="pivot_tts",
+                )
 
     return async_track_state_change_event(hass, [button_entity_id], _on_button_press)

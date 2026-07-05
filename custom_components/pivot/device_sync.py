@@ -103,7 +103,9 @@ def setup_device_sync(hass: HomeAssistant, entry: ConfigEntry) -> list[CALLBACK_
 
     @callback
     def _on_started(_hass: HomeAssistant) -> None:
-        hass.async_create_task(_push_settings())
+        entry.async_create_background_task(
+            hass, _push_settings(), name="pivot_push_settings"
+        )
 
     # Fires once HA has fully started, or immediately if it already has
     # (e.g. on entry reload).

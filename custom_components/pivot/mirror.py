@@ -37,12 +37,14 @@ def setup_mirror_listeners(hass: HomeAssistant, entry: ConfigEntry) -> list:
             configured_hex = BANK_COLORS_HEX[bank]
         current_configured = hass.states.get(configured_text_id)
         if not current_configured or current_configured.state.upper() != configured_hex.upper():
-            hass.async_create_task(
+            entry.async_create_background_task(
+                hass,
                 hass.services.async_call(
                     "text", "set_value",
                     {"entity_id": configured_text_id, "value": configured_hex},
                     blocking=False,
-                )
+                ),
+                name="pivot_mirror_write",
             )
 
         mirror_state = hass.states.get(mirror_switch_id)
@@ -51,12 +53,14 @@ def setup_mirror_listeners(hass: HomeAssistant, entry: ConfigEntry) -> list:
             current = hass.states.get(color_text_id)
             if not current or current.state.upper() != configured_hex.upper():
                 _LOGGER.debug("Pivot mirror: bank %d mirror off, restoring user color %s", bank, configured_hex)
-                hass.async_create_task(
+                entry.async_create_background_task(
+                    hass,
                     hass.services.async_call(
                         "text", "set_value",
                         {"entity_id": color_text_id, "value": configured_hex},
                         blocking=False,
-                    )
+                    ),
+                    name="pivot_mirror_write",
                 )
             return
 
@@ -83,12 +87,14 @@ def setup_mirror_listeners(hass: HomeAssistant, entry: ConfigEntry) -> list:
             return
 
         _LOGGER.debug("Pivot mirror: bank %d writing %s to %s", bank, hex_color, color_text_id)
-        hass.async_create_task(
+        entry.async_create_background_task(
+            hass,
             hass.services.async_call(
                 "text", "set_value",
                 {"entity_id": color_text_id, "value": hex_color},
                 blocking=False,
-            )
+            ),
+            name="pivot_mirror_write",
         )
 
     @callback

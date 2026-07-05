@@ -134,12 +134,14 @@ def setup_bank_control_listener(
                 duration = max(int(min_val), min(int(max_val), max(1, duration)))
             except (ValueError, TypeError):
                 return
-            hass.async_create_task(
+            entry.async_create_background_task(
+                hass,
                 hass.services.async_call(
                     "number", "set_value",
                     {"entity_id": duration_eid, "value": duration},
                     blocking=False,
-                )
+                ),
+                name="pivot_set_timer_duration",
             )
             hass.bus.async_fire(
                 "pivot_timer_duration_set",
@@ -174,8 +176,9 @@ def setup_bank_control_listener(
             def _fire_apply(_now=None, bd=_bd, bv=_bv, bi=_bi) -> None:
                 _apply_debounce_cancels.pop(bi, None)
                 _entity_apply_cooldown[bi] = time.monotonic()
-                hass.async_create_task(
-                    apply_value_to_entity(hass, domain, bd, bv)
+                entry.async_create_background_task(
+                    hass, apply_value_to_entity(hass, domain, bd, bv),
+                    name="pivot_apply_value",
                 )
 
             _apply_debounce_cancels[bank_idx] = async_call_later(
@@ -183,8 +186,9 @@ def setup_bank_control_listener(
             )
         else:
             _entity_apply_cooldown[bank_idx] = time.monotonic()
-            hass.async_create_task(
-                apply_value_to_entity(hass, domain, bank_entity, value)
+            entry.async_create_background_task(
+                hass, apply_value_to_entity(hass, domain, bank_entity, value),
+                name="pivot_apply_value",
             )
 
         # Fire event for user automations
@@ -225,7 +229,10 @@ def setup_bank_control_listener(
                             return
                         msg = format_value_announcement(hass, be, bv)
                         if msg:
-                            hass.async_create_task(do_tts(hass, tts_entity, media_player, msg))
+                            entry.async_create_background_task(
+                                hass, do_tts(hass, tts_entity, media_player, msg),
+                                name="pivot_tts",
+                            )
 
                     announce_cancels[bank_idx] = async_call_later(hass, 0.6, _fire_value_announce)
 
@@ -282,7 +289,10 @@ def setup_bank_control_listener(
                 else:
                     _es = hass.states.get(bank_entity)
                     _name = (_es.attributes.get("friendly_name") if _es else None) or bank_entity
-                hass.async_create_task(do_tts(hass, tts_entity, media_player, _name))
+                entry.async_create_background_task(
+                    hass, do_tts(hass, tts_entity, media_player, _name),
+                    name="pivot_tts",
+                )
 
         if not bank_entity:
             return
@@ -306,13 +316,15 @@ def setup_bank_control_listener(
             except (ValueError, TypeError):
                 return
             value_entity_id = f"number.{suffix}_bank_{bank_idx + 1}_value"
-            hass.async_create_task(
+            entry.async_create_background_task(
+                hass,
                 hass.services.async_call(
                     "number", "set_value",
                     {"entity_id": value_entity_id, "value": synced},
                     context=sync_contexts.new_context(),
                     blocking=False,
-                )
+                ),
+                name="pivot_sync_gauge",
             )
             return
 
@@ -324,17 +336,21 @@ def setup_bank_control_listener(
 
         # Passive banks (scene/script/switch) have no controllable value — zero the gauge
         if domain in PASSIVE_DOMAINS:
-            hass.async_create_task(
+            entry.async_create_background_task(
+                hass,
                 hass.services.async_call(
                     "number", "set_value",
                     {"entity_id": value_entity_id, "value": 0},
                     blocking=False,
-                )
+                ),
+                name="pivot_zero_passive_bank",
             )
             return
 
-        hass.async_create_task(
-            sync_value_from_entity(hass, domain, bank_entity, value_entity_id, sync_contexts)
+        entry.async_create_background_task(
+            hass,
+            sync_value_from_entity(hass, domain, bank_entity, value_entity_id, sync_contexts),
+            name="pivot_sync_gauge",
         )
 
     @callback
@@ -360,8 +376,10 @@ def setup_bank_control_listener(
                 continue
 
             value_entity_id = f"number.{suffix}_bank_{bank + 1}_value"
-            hass.async_create_task(
-                sync_value_from_entity(hass, domain, changed_entity_id, value_entity_id, sync_contexts)
+            entry.async_create_background_task(
+                hass,
+                sync_value_from_entity(hass, domain, changed_entity_id, value_entity_id, sync_contexts),
+                name="pivot_sync_gauge",
             )
 
     _assigned_entity_unsubs: list = []
@@ -414,12 +432,14 @@ def setup_bank_control_listener(
         domain = bank_entity.split(".")[0]
         if domain in PASSIVE_DOMAINS:
             value_entity_id = f"number.{suffix}_bank_{bank_idx + 1}_value"
-            hass.async_create_task(
+            entry.async_create_background_task(
+                hass,
                 hass.services.async_call(
                     "number", "set_value",
                     {"entity_id": value_entity_id, "value": 0},
                     blocking=False,
-                )
+                ),
+                name="pivot_zero_passive_bank",
             )
 
     _register_assigned_entity_watchers()

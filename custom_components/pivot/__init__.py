@@ -76,7 +76,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: PivotConfigEntry) -> boo
                 except Exception as err:
                     _LOGGER.debug("Pivot: could not write config text entity %s: %s", _eid, err)
 
-    hass.async_create_task(_write_config_text_entities())
+    entry.async_create_background_task(
+        hass, _write_config_text_entities(), name="pivot_write_config_texts"
+    )
 
     # One-time seed of initial bank assignments from the config flow.
     # The banks_initial step stores bank_N_entity values in entry.data, but
@@ -142,7 +144,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: PivotConfigEntry) -> boo
                 except Exception as err:
                     _LOGGER.debug("Pivot: could not zero passive bank value %s: %s", v_eid, err)
 
-        hass.async_create_task(_zero_if_passive())
+        entry.async_create_background_task(
+            hass, _zero_if_passive(), name="pivot_zero_passive_bank"
+        )
 
     data.unsubs.extend(setup_mirror_listeners(hass, entry))
 
