@@ -53,6 +53,46 @@ def format_value_announcement(hass: HomeAssistant, bank_entity: str, bank_value:
     return None
 
 
+def clip_id_for_value(hass: HomeAssistant, bank_entity: str, bank_value: float) -> str | None:
+    """Map a knob value to a pre-baked local announcement clip id (audio_file id
+    in the firmware), e.g. "ann_brightness_47". Mirrors format_value_announcement's
+    wording but returns the clip to play LOCALLY instead of speaking via HA TTS
+    (which crashes on ESPHome 2026.6+, voice-pe#613).
+
+    Scope: light/fan/media_player/cover (percent) and climate (degrees). Returns
+    None for number/input_number (custom units aren't pre-baked) and passive
+    domains, so those simply aren't announced.
+    """
+    if not bank_entity or "." not in bank_entity:
+        return None
+    domain = bank_entity.split(".")[0]
+    entity_state = hass.states.get(bank_entity)
+    if entity_state is None or entity_state.state in ("unavailable", "unknown"):
+        return None
+
+    def clamp(x: float) -> int:
+        return max(0, min(100, int(round(x))))
+
+    if domain == "light":
+        return f"ann_brightness_{clamp(bank_value)}"
+    if domain == "media_player":
+        return f"ann_volume_{clamp(bank_value)}"
+    if domain == "fan":
+        return f"ann_speed_{clamp(bank_value)}"
+    if domain == "cover":
+        # clip 0 = "Closing", 100 = "Opening", 1..99 = "{n} percent open"
+        return f"ann_cover_{clamp(bank_value)}"
+    if domain == "climate":
+        try:
+            min_temp = float(entity_state.attributes.get("min_temp", 16))
+            max_temp = float(entity_state.attributes.get("max_temp", 30))
+            target = min_temp + (bank_value / 100.0) * (max_temp - min_temp)
+        except (TypeError, ValueError):
+            return None
+        return f"ann_temp_{clamp(target)}"
+    return None
+
+
 async def do_tts(hass: HomeAssistant, tts_entity: str, media_player: str, message: str) -> None:
     """Call tts.speak with the given message."""
     if not tts_entity or not media_player or not message:

@@ -8,8 +8,10 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 
-from .announcements import ANNOUNCEABLE_DOMAINS, do_tts, format_value_announcement
-from .const import CONF_DEVICE_SUFFIX, NUM_BANKS, PASSIVE_DOMAINS
+from .announcements import ANNOUNCEABLE_DOMAINS, clip_id_for_value
+from .const import (
+    CONF_DEVICE_SUFFIX, CONF_ESPHOME_DEVICE_NAME, NUM_BANKS, PASSIVE_DOMAINS, make_suffix,
+)
 from .entity_mappings import SyncContextTracker, apply_value_to_entity, sync_value_from_entity
 
 _LOGGER = logging.getLogger(__name__)
@@ -55,6 +57,29 @@ def setup_bank_control_listener(
     suffix = entry.data[CONF_DEVICE_SUFFIX]
     if announce_cancels is None:
         announce_cancels = {}
+
+    # ESPHome exposes device actions as esphome.<slug>_<action>. The firmware's
+    # pivot_announce_value action plays a pre-baked LOCAL clip, bypassing the
+    # HA-TTS/URL audio path that crashes on ESPHome 2026.6+ (voice-pe#613).
+    _esphome_name = entry.data.get(CONF_ESPHOME_DEVICE_NAME) or ""
+    announce_service = (
+        f"{make_suffix(_esphome_name)}_pivot_announce_value" if _esphome_name else ""
+    )
+
+    def _announce_clip(clip_id: str | None) -> None:
+        if not announce_service or not clip_id:
+            return
+        if not hass.services.has_service("esphome", announce_service):
+            _LOGGER.debug("Pivot: esphome.%s unavailable (device offline/old firmware)",
+                          announce_service)
+            return
+        entry.async_create_background_task(
+            hass,
+            hass.services.async_call(
+                "esphome", announce_service, {"clip_id": clip_id}, blocking=False,
+            ),
+            name="pivot_announce_value",
+        )
 
     bank_value_entity_ids = [
         f"number.{suffix}_bank_{bank + 1}_value" for bank in range(NUM_BANKS)
@@ -208,7 +233,9 @@ def setup_bank_control_listener(
         )
 
         # Value announcement — debounced so only the settled value is spoken.
-        if announce_enabled and tts_entity and media_player and "." in bank_entity:
+        # Plays a pre-baked LOCAL clip via the firmware (no HA-TTS/URL audio,
+        # which crashes on ESPHome 2026.6+, voice-pe#613).
+        if announce_enabled and announce_service and "." in bank_entity:
             ann_domain = bank_entity.split(".")[0]
             if ann_domain in ANNOUNCEABLE_DOMAINS:
                 ann_switch = hass.states.get(f"switch.{suffix}_bank_{bank_idx + 1}_announce_value")
@@ -227,12 +254,7 @@ def setup_bank_control_listener(
                         mute = hass.states.get(f"switch.{suffix}_mute_announcements")
                         if mute and mute.state == "on":
                             return
-                        msg = format_value_announcement(hass, be, bv)
-                        if msg:
-                            entry.async_create_background_task(
-                                hass, do_tts(hass, tts_entity, media_player, msg),
-                                name="pivot_tts",
-                            )
+                        _announce_clip(clip_id_for_value(hass, be, bv))
 
                     announce_cancels[bank_idx] = async_call_later(hass, 0.6, _fire_value_announce)
 
@@ -276,23 +298,11 @@ def setup_bank_control_listener(
             announce_cancels.pop(_bi, None)
             _cancel()
 
-        # Native bank change announcement (system announcement, not value announcement)
-        if announce_enabled and tts_entity and media_player and bank_entity:
-            _cm = hass.states.get(f"switch.{suffix}_control_mode")
-            _ann = hass.states.get(f"switch.{suffix}_announcements")
-            _mute = hass.states.get(f"switch.{suffix}_mute_announcements")
-            if (_cm and _cm.state == "on"
-                    and _ann and _ann.state == "on"
-                    and not (_mute and _mute.state == "on")):
-                if bank_entity == "timer":
-                    _name = "Timer"
-                else:
-                    _es = hass.states.get(bank_entity)
-                    _name = (_es.attributes.get("friendly_name") if _es else None) or bank_entity
-                entry.async_create_background_task(
-                    hass, do_tts(hass, tts_entity, media_player, _name),
-                    name="pivot_tts",
-                )
+        # Bank-change entity-name announcement: DISABLED. Entity names are arbitrary
+        # strings that can't be pre-baked as local clips, and the HA-TTS/URL audio
+        # path crashes on ESPHome 2026.6+ (voice-pe#613). Value announcements now
+        # play locally (see _on_bank_value_changed). Re-enable a spoken name here
+        # via do_tts once the upstream audio bug is fixed.
 
         if not bank_entity:
             return
