@@ -460,7 +460,8 @@ async def test_bad_hex_colour_is_rejected(hass):
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    hass.states.async_set(f"text.{SUFFIX}_bank_1_color", "#GGGGGG")
+    # "#-12345" is the sharper case: int(x, 16) would accept it.
+    hass.states.async_set(f"text.{SUFFIX}_bank_1_color", "#-12345")
 
     hass.set_state(CoreState.running)
     hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)

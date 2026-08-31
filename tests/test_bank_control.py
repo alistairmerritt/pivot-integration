@@ -1,6 +1,10 @@
 """Tests for knob value application, bank switching, and loop prevention."""
+from datetime import timedelta
+
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     async_capture_events,
+    async_fire_time_changed,
     async_mock_service,
 )
 
@@ -117,3 +121,51 @@ async def test_sync_write_is_not_treated_as_knob_turn(hass, setup_pivot):
     # ...but nothing was applied back and no knob event fired
     assert not calls
     assert not events
+
+
+async def _turn_cover_knob(hass, calls_domain="cover"):
+    """Assign a cover to bank 1 and turn the knob, leaving a debounce pending."""
+    hass.states.async_set("cover.blind", "open", {"current_position": 20})
+    await _assign_bank(hass, 1, "cover.blind")
+    await _control_mode(hass, True)
+    calls = async_mock_service(hass, calls_domain, "set_cover_position")
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": f"number.{SUFFIX}_bank_1_value", "value": 60},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    return calls
+
+
+async def test_pending_command_cancelled_on_unload(hass, setup_pivot):
+    """Cover/climate/media commands are debounced ~400ms.
+
+    A pending one captures its entity and value at schedule time, so if it
+    survives an unload it fires at an entity the integration no longer owns.
+    """
+    calls = await _turn_cover_knob(hass)
+    assert calls == [], "should still be waiting out the debounce"
+
+    assert await hass.config_entries.async_unload(setup_pivot.entry_id)
+    await hass.async_block_till_done()
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=2))
+    await hass.async_block_till_done()
+
+    assert calls == [], "a pending command must not fire after unload"
+
+
+async def test_pending_command_cancelled_on_bank_reassignment(hass, setup_pivot):
+    """Reassigning a bank must drop the command queued for the old entity."""
+    calls = await _turn_cover_knob(hass)
+    assert calls == []
+
+    # Reassign bank 1 to something else before the debounce elapses.
+    await _assign_bank(hass, 1, "light.kitchen")
+    await hass.async_block_till_done()
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=2))
+    await hass.async_block_till_done()
+
+    assert calls == [], "must not command the entity that was just unassigned"

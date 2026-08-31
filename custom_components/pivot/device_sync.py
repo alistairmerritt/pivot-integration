@@ -120,10 +120,10 @@ def setup_device_sync(hass: HomeAssistant, entry: ConfigEntry) -> list[CALLBACK_
             return None
         # Validate the digits too. The firmware parses hex with a helper that
         # returns 0 for anything unrecognised, so "#GGGGGG" would silently
-        # become black rather than being rejected.
-        try:
-            int(value[1:], 16)
-        except ValueError:
+        # become black rather than being rejected. Checked per character
+        # rather than with int(x, 16), which accepts signs and whitespace
+        # ("#-12345", "# 12345") that are equally not colours.
+        if not all(c in "0123456789abcdefABCDEF" for c in value[1:]):
             return None
         return value
 
