@@ -29,6 +29,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/ruff-action@v3
+        with:
+          # Pinned: an unpinned Ruff picks up new default rules on release and
+          # fails CI with no code change. The rule set lives in pyproject.toml.
+          version: 0.16.5
 
   tests:
     name: Tests

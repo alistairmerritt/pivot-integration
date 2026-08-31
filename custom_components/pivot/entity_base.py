@@ -1,14 +1,12 @@
 """Shared base class for all Pivot entities."""
 from __future__ import annotations
 
-import urllib.parse
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN, CONF_DEVICE_ID, CONF_ESPHOME_DEVICE_NAME, CONF_DEVICE_SUFFIX
+from .const import CONF_DEVICE_ID, CONF_DEVICE_SUFFIX, DOMAIN
 
 
 class PivotEntity(RestoreEntity):
@@ -37,15 +35,13 @@ class PivotEntity(RestoreEntity):
             self.entity_id = definition["entity_id"]
 
         device_id: str = config_entry.data[CONF_DEVICE_ID]
-        esphome_name: str = config_entry.data[CONF_ESPHOME_DEVICE_NAME]
         suffix: str = config_entry.data[CONF_DEVICE_SUFFIX]
 
-        safe_host = urllib.parse.quote(esphome_name, safe="-.")
-
+        # No configuration_url: the Pivot firmware ships no web_server
+        # component, so http://<device>.local would be a dead link.
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
             name=suffix,
             model="Home Assistant Voice Preview Edition",
             manufacturer="Pivot",
-            configuration_url=f"http://{safe_host}.local",
         )

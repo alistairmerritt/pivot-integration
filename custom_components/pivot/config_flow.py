@@ -1,29 +1,33 @@
 """Config flow for Pivot."""
 from __future__ import annotations
 
+import ipaddress
 import logging
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers import device_registry as dr, selector
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import selector
 
 from .const import (
-    DOMAIN,
-    CONF_DEVICE_ID,
-    CONF_ESPHOME_DEVICE_NAME,
-    CONF_DEVICE_SUFFIX,
-    CONF_FRIENDLY_NAME,
     CONF_ANNOUNCEMENTS,
-    CONF_TTS_ENTITY,
-    CONF_MEDIA_PLAYER_ENTITY,
+    CONF_DEVICE_ID,
+    CONF_DEVICE_SUFFIX,
+    CONF_ESPHOME_DEVICE_NAME,
+    CONF_FRIENDLY_NAME,
     CONF_MANAGEMENT_MODE,
+    CONF_MEDIA_PLAYER_ENTITY,
+    CONF_TTS_ENTITY,
+    DOMAIN,
     MANAGEMENT_BLUEPRINTS,
     NUM_BANKS,
     make_suffix,
+    option_or_data,
+)
+from .const import (
     entity_id as make_entity_id,
 )
 
@@ -49,23 +53,57 @@ def _get_esphome_devices(hass: HomeAssistant) -> dict[str, str]:
     return pivot_candidates
 
 
+def _is_ip_address(value: str) -> bool:
+    """True if value is a bare IPv4/IPv6 address rather than a hostname."""
+    if not value:
+        return False
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
 def _get_esphome_device_name(hass: HomeAssistant, device: dr.DeviceEntry) -> str | None:
     """Return the ESPHome device name (e.g. 'home-assistant-voice-0aaae0').
 
-    ESPHome config entries store the hostname in entry.data["host"] as either
-    "home-assistant-voice-0aaae0.local" or "home-assistant-voice-0aaae0".
-    We strip the .local suffix to get the bare device name.
+    Current ESPHome stores the canonical name in entry.data["device_name"].
+    Older versions used "name". Both are preferred over entry.data["host"],
+    which is either "home-assistant-voice-0aaae0.local", the bare name, or an
+    IP address. The .local suffix is stripped; an IP address is rejected.
     """
     for eid in device.config_entries:
         entry = hass.config_entries.async_get_entry(eid)
         if entry and entry.domain == "esphome":
+            # Never log entry.data wholesale — ESPHome stores "password" and
+            # "noise_psk" in there. Only allowlisted, non-secret fields.
             _LOGGER.debug(
-                "ESPHome entry for device %s: title=%r data=%s",
-                device.id, entry.title, dict(entry.data)
+                "ESPHome entry for device %s: title=%r device_name=%r host=%r",
+                device.id,
+                entry.title,
+                entry.data.get("device_name"),
+                entry.data.get("host"),
             )
-            # Try "name" first (older ESPHome versions), then "host"
-            name = entry.data.get("name") or entry.data.get("host") or ""
+            # "device_name" is the canonical hostname in current ESPHome.
+            # "name" is the legacy key; "host" is a last resort because the
+            # user may have configured ESPHome by IP address.
+            name = (
+                entry.data.get("device_name")
+                or entry.data.get("name")
+                or entry.data.get("host")
+                or ""
+            )
             name = name.removesuffix(".local").strip()
+            if _is_ip_address(name):
+                # make_suffix() would strip the dots and produce a bogus
+                # suffix like "192168142", silently breaking every entity ID
+                # and the esphome.<slug>_pivot_sync_settings action.
+                _LOGGER.warning(
+                    "ESPHome entry for %s is configured by IP address (%s) and "
+                    "reports no device name — cannot determine entity ID suffix",
+                    device.id, name,
+                )
+                return None
             if name:
                 return name
             # The title is the user-visible friendly name, not the device's
@@ -351,16 +389,10 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
             selector.EntitySelectorConfig(domain="media_player", multiple=False)
         )
 
-        current_tts = (
-            self.config_entry.options.get(CONF_TTS_ENTITY)
-            or self.config_entry.data.get(CONF_TTS_ENTITY)
-            or None
-        )
-        current_mp = (
-            self.config_entry.options.get(CONF_MEDIA_PLAYER_ENTITY)
-            or self.config_entry.data.get(CONF_MEDIA_PLAYER_ENTITY)
-            or None
-        )
+        # option_or_data, not `options.get(...) or data.get(...)`: a cleared
+        # field is stored as "" and must stay cleared, not fall back to data.
+        current_tts = option_or_data(self.config_entry, CONF_TTS_ENTITY) or None
+        current_mp = option_or_data(self.config_entry, CONF_MEDIA_PLAYER_ENTITY) or None
         current_ann = bool(
             self.config_entry.options.get(CONF_ANNOUNCEMENTS,
                 self.config_entry.data.get(CONF_ANNOUNCEMENTS, True))
