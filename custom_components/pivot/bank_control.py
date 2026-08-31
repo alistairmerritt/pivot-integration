@@ -10,7 +10,11 @@ from homeassistant.helpers.event import async_call_later, async_track_state_chan
 
 from .announcements import ANNOUNCEABLE_DOMAINS, do_tts, format_value_announcement
 from .const import CONF_DEVICE_SUFFIX, NUM_BANKS, PASSIVE_DOMAINS
-from .entity_mappings import SyncContextTracker, apply_value_to_entity, sync_value_from_entity
+from .entity_mappings import (
+    SyncContextTracker,
+    apply_value_to_entity,
+    sync_value_from_entity,
+)
 
 _LOGGER = logging.getLogger(__name__)
 

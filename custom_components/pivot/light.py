@@ -21,6 +21,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import (
     CONF_DEVICE_SUFFIX,
     get_light_definitions,
+)
+from .const import (
     entity_id as make_entity_id,
 )
 from .entity_base import PivotEntity

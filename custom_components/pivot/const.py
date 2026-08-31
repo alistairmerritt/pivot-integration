@@ -1,4 +1,10 @@
 """Constants for the Pivot integration."""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
 
 DOMAIN = "pivot"
 
@@ -37,6 +43,21 @@ BANK_COLORS_HEX = {
     2: "#97FF3D",  # Green
     3: "#C800FF",  # Purple
 }
+
+
+def option_or_data(entry: ConfigEntry, key: str, default: Any = "") -> Any:
+    """Read a config option, falling back to entry.data only if the key is absent.
+
+    `entry.options.get(key) or entry.data.get(key)` cannot express "the user
+    deliberately cleared this" — an empty string is falsy, so the stale value
+    from entry.data comes back and the field can never be emptied. Presence of
+    the key in options is the real signal.
+    """
+    if key in entry.options:
+        value = entry.options[key]
+    else:
+        value = entry.data.get(key, default)
+    return default if value is None else value
 
 
 def make_suffix(esphome_device_name: str) -> str:

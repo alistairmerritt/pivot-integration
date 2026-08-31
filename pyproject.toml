@@ -1,3 +1,15 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.ruff]
+# Ruff's default rule set changes between releases — 0.16.5 defaults flag 19
+# findings this repo previously passed. The Ruff version is pinned in
+# .github/workflows/validate.yml, and the rule set is declared here, so neither
+# a Ruff upgrade nor a change to its defaults can alter what CI enforces
+# without a deliberate edit. ruff-action runs plain `ruff check`, which reads
+# this file.
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

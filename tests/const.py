@@ -15,6 +15,7 @@ SUFFIX = "test_vpe"
 ESPHOME_NAME = "home-assistant-voice-test1"
 ESPHOME_SLUG = "home_assistant_voice_test1"
 SYNC_SERVICE = f"{ESPHOME_SLUG}_pivot_sync_settings"
+SYNC_SERVICE_V2 = f"{ESPHOME_SLUG}_pivot_sync_settings_v2"
 
 ENTRY_DATA = {
     CONF_DEVICE_ID: "fake-device-id",

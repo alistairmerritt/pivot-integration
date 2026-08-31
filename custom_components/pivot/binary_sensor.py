@@ -9,7 +9,13 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import CONF_DEVICE_SUFFIX, NUM_BANKS, PASSIVE_DOMAINS, get_binary_sensor_definitions, get_text_definitions
+from .const import (
+    CONF_DEVICE_SUFFIX,
+    NUM_BANKS,
+    PASSIVE_DOMAINS,
+    get_binary_sensor_definitions,
+    get_text_definitions,
+)
 from .entity_base import PivotEntity
 
 _LOGGER = logging.getLogger(__name__)

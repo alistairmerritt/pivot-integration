@@ -11,11 +11,19 @@ from .bank_control import setup_bank_control_listener
 from .blueprints import install_blueprints
 from .button import setup_button_event_listener
 from .const import (
-    CONF_DEVICE_SUFFIX, CONF_FRIENDLY_NAME,
-    CONF_ANNOUNCEMENTS, CONF_TTS_ENTITY, CONF_MEDIA_PLAYER_ENTITY,
+    CONF_ANNOUNCEMENTS,
+    CONF_DEVICE_SUFFIX,
+    CONF_FRIENDLY_NAME,
     CONF_MANAGEMENT_MODE,
+    CONF_MEDIA_PLAYER_ENTITY,
+    CONF_TTS_ENTITY,
     MANAGEMENT_BLUEPRINTS,
-    NUM_BANKS, PASSIVE_DOMAINS, entity_id as make_entity_id,
+    NUM_BANKS,
+    PASSIVE_DOMAINS,
+    option_or_data,
+)
+from .const import (
+    entity_id as make_entity_id,
 )
 from .device_sync import setup_device_sync
 from .entity_mappings import SyncContextTracker
@@ -57,8 +65,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: PivotConfigEntry) -> boo
 
     # Write configured TTS and media player entity IDs to their text entities so
     # the Announce and Timer blueprints can read them without needing manual input.
-    _tts = entry.options.get(CONF_TTS_ENTITY) or entry.data.get(CONF_TTS_ENTITY) or ""
-    _mp = entry.options.get(CONF_MEDIA_PLAYER_ENTITY) or entry.data.get(CONF_MEDIA_PLAYER_ENTITY) or ""
+    _tts = option_or_data(entry, CONF_TTS_ENTITY)
+    _mp = option_or_data(entry, CONF_MEDIA_PLAYER_ENTITY)
     _announce_enabled = bool(
         entry.options.get(CONF_ANNOUNCEMENTS, entry.data.get(CONF_ANNOUNCEMENTS, True))
     )

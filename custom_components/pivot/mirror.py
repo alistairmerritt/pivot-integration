@@ -7,7 +7,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import BANK_COLORS_HEX, CONF_DEVICE_SUFFIX, NUM_BANKS, entity_id as make_entity_id
+from .const import BANK_COLORS_HEX, CONF_DEVICE_SUFFIX, NUM_BANKS
+from .const import entity_id as make_entity_id
 
 _LOGGER = logging.getLogger(__name__)
 
