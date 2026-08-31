@@ -421,6 +421,17 @@ def setup_bank_control_listener(
                 break
         if bank_idx is None:
             return
+
+        # Drop any debounced command still pending for this bank: it captured
+        # the OLD entity, so firing it now would command the entity the user
+        # just unassigned.
+        stale = _apply_debounce_cancels.pop(bank_idx, None)
+        if stale:
+            _LOGGER.debug(
+                "Pivot: bank %d reassigned — cancelling its pending command",
+                bank_idx + 1,
+            )
+            stale()
         active_bank_state = hass.states.get(active_bank_entity_id)
         if active_bank_state is None:
             return
@@ -460,7 +471,20 @@ def setup_bank_control_listener(
         _on_bank_assignment_changed,
     )
 
+    @callback
+    def _cancel_pending_applies() -> None:
+        """Drop debounced cover/climate/media commands still in flight.
+
+        These capture the bank's entity and value at schedule time, so one
+        surviving an unload or a bank reassignment would fire a stale command
+        at whatever entity used to be assigned.
+        """
+        while _apply_debounce_cancels:
+            _, cancel = _apply_debounce_cancels.popitem()
+            cancel()
+
     return (
         [unsub_values, unsub_active, unsub_assignments]
         + [lambda: [u() for u in _assigned_entity_unsubs]]
+        + [_cancel_pending_applies]
     )

@@ -389,3 +389,81 @@ async def test_degrades_to_v1_when_a_colour_entity_is_missing(hass):
         "bank_passive_1_in", "bank_passive_2_in", "bank_passive_3_in",
         "bank_passive_4_in",
     }
+
+
+async def test_degraded_push_is_not_reported_as_failure(hass, caplog):
+    """A degraded push SUCCEEDS and must be recorded as such.
+
+    The degraded path returns v1 while v2 is registered — v2 was never
+    missing, a source entity was. Treating that as "v2 appeared mid-push"
+    retried against the same missing entity and logged total failure for a
+    push that had actually been delivered.
+    """
+    import logging
+
+    v1_calls: list = []
+    v2_calls: list = []
+
+    async def _v1(call):
+        v1_calls.append(call)
+
+    async def _v2(call):
+        v2_calls.append(call)
+
+    hass.services.async_register("esphome", SYNC_SERVICE, _v1)
+    hass.services.async_register("esphome", SYNC_SERVICE_V2, _v2)
+
+    hass.set_state(CoreState.starting)
+    entry = MockConfigEntry(domain=DOMAIN, data=dict(ENTRY_DATA), title="Test VPE")
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    hass.states.async_set(f"text.{SUFFIX}_bank_2_configured_color", "unavailable")
+
+    with caplog.at_level(logging.WARNING, logger="custom_components.pivot.device_sync"):
+        hass.set_state(CoreState.running)
+        hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+        await hass.async_block_till_done()
+
+        now = dt_util.utcnow()
+        for delay in (5, 10, 20, 30, 60, 120):
+            now += timedelta(seconds=delay + 1)
+            async_fire_time_changed(hass, now)
+            await hass.async_block_till_done()
+
+    # The boolean repair went out exactly once, and was not retried.
+    assert len(v1_calls) == 1
+    assert v2_calls == []
+
+    # It must NOT be reported as an outright delivery failure.
+    assert "could not deliver settings" not in caplog.text
+
+
+async def test_bad_hex_colour_is_rejected(hass):
+    """A 7-char string starting with # is not necessarily a colour.
+
+    The firmware parses hex with a helper that yields 0 for unrecognised
+    characters, so "#GGGGGG" would silently be applied as black instead of
+    being treated as unusable.
+    """
+    pushes = []
+
+    async def _fake_sync(call):
+        pushes.append(call)
+
+    hass.services.async_register("esphome", SYNC_SERVICE_V2, _fake_sync)
+
+    hass.set_state(CoreState.starting)
+    entry = MockConfigEntry(domain=DOMAIN, data=dict(ENTRY_DATA), title="Test VPE")
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    hass.states.async_set(f"text.{SUFFIX}_bank_1_color", "#GGGGGG")
+
+    hass.set_state(CoreState.running)
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await hass.async_block_till_done()
+
+    assert pushes == [], "a non-hex colour must not be pushed to the device"

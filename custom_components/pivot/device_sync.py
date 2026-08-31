@@ -118,6 +118,13 @@ def setup_device_sync(hass: HomeAssistant, entry: ConfigEntry) -> list[CALLBACK_
         value = state.state.strip()
         if len(value) != 7 or not value.startswith("#"):
             return None
+        # Validate the digits too. The firmware parses hex with a helper that
+        # returns 0 for anything unrecognised, so "#GGGGGG" would silently
+        # become black rather than being rejected.
+        try:
+            int(value[1:], 16)
+        except ValueError:
+            return None
         return value
 
     async def _call(service_name: str, data: dict) -> bool:
@@ -284,11 +291,20 @@ def setup_device_sync(hass: HomeAssistant, entry: ConfigEntry) -> list[CALLBACK_
             _schedule_retry()
             return
 
-        if used == service_v1 and hass.services.has_service("esphome", service_v2):
+        if (
+            used == service_v1
+            and not degraded
+            and hass.services.has_service("esphome", service_v2)
+        ):
             # v2 registered while this v1 call was in flight. The `running`
             # guard dropped that trigger, so without this recheck a device that
             # supports the full repair would be stuck on booleans until the next
             # restart. Not marking done: go again, now that v2 exists.
+            #
+            # `not degraded` matters: a degraded push ALSO returns v1 while v2
+            # is registered, but there v2 was never missing — a source entity
+            # was. Retrying would fail on the same entity, then log a total
+            # failure for a push that actually succeeded.
             _LOGGER.debug(
                 "Pivot: esphome.%s appeared during the v1 push — upgrading",
                 service_v2,
