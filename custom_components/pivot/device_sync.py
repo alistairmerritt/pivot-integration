@@ -139,12 +139,38 @@ def setup_device_sync(hass: HomeAssistant, entry: ConfigEntry) -> list[CALLBACK_
             return False
         return True
 
-    async def _push_settings() -> str | None:
+    async def _degrade_or_retry(
+        entity_id: str, degraded: bool, bools: dict
+    ) -> str | None:
+        """Either wait for the entity, or fall back to the boolean-only push."""
+        if not degraded:
+            _LOGGER.debug(
+                "Pivot: %s not ready — will retry settings push", entity_id
+            )
+            return None
+        _LOGGER.warning(
+            "Pivot: %s is still unavailable, so the full settings repair cannot "
+            "run for %s. Falling back to the basic repair (Control Mode, Show "
+            "Control Value, Dim When Idle, mirror and passive flags). Active "
+            "bank, bank values and bank colours may be stale until that entity "
+            "is available — check it is not disabled in Home Assistant.",
+            entity_id, suffix,
+        )
+        return service_v1 if await _call(service_v1, bools) else None
+
+    async def _push_settings(degraded: bool = False) -> str | None:
         """Push all settings.
 
         Returns the action that was actually delivered, or None if the push
         could not go out. The caller needs to know WHICH action ran: a v1
         fallback is not a finished job if v2 has since appeared.
+
+        `degraded` is set on the final attempt. The extended v2 payload needs
+        entities that can be absent in practice rather than merely late — a
+        disabled or missing bank colour entity would otherwise make every
+        attempt fail and deliver nothing at all. Rather than give up, the last
+        attempt sends the boolean-only v1 payload, which is what shipped before
+        v2 existed. Values are never guessed either way.
         """
         has_v2 = hass.services.has_service("esphome", service_v2)
         has_v1 = hass.services.has_service("esphome", service_v1)
@@ -210,29 +236,27 @@ def setup_device_sync(hass: HomeAssistant, entry: ConfigEntry) -> list[CALLBACK_
                 f"text.{suffix}_bank_{bank + 1}_configured_color"
             )
 
+        extended: dict[str, bool | float | int | str] = {}
         for key, entity_id in numeric.items():
             value = _read_float(entity_id)
             if value is None:
-                _LOGGER.debug(
-                    "Pivot: %s not ready — will retry settings push", entity_id
-                )
-                return None
-            data[key] = round(value) if key == "active_bank_in" else value
+                return await _degrade_or_retry(entity_id, degraded, data)
+            extended[key] = round(value) if key == "active_bank_in" else value
 
         for key, entity_id in colors.items():
             color = _read_color(entity_id)
             if color is None:
-                _LOGGER.debug(
-                    "Pivot: %s not ready — will retry settings push", entity_id
-                )
-                return None
-            data[key] = color
+                return await _degrade_or_retry(entity_id, degraded, data)
+            extended[key] = color
+
+        data.update(extended)
 
         return service_v2 if await _call(service_v2, data) else None
 
     # --- retry/trigger plumbing -------------------------------------------
     done = False
     running = False
+    degraded_tried = False
     attempt = 0
     pending_cancel: CALLBACK_TYPE | None = None
 
@@ -243,7 +267,7 @@ def setup_device_sync(hass: HomeAssistant, entry: ConfigEntry) -> list[CALLBACK_
             pending_cancel()
             pending_cancel = None
 
-    async def _attempt(reason: str) -> None:
+    async def _attempt(reason: str, degraded: bool = False) -> None:
         nonlocal done, running
         # `running` matters because two triggers can overlap — a v2 registration
         # arriving while a grace-delayed v1 attempt is already in flight would
@@ -252,7 +276,7 @@ def setup_device_sync(hass: HomeAssistant, entry: ConfigEntry) -> list[CALLBACK_
             return
         running = True
         try:
-            used = await _push_settings()
+            used = await _push_settings(degraded)
         finally:
             running = False
 
@@ -301,10 +325,20 @@ def setup_device_sync(hass: HomeAssistant, entry: ConfigEntry) -> list[CALLBACK_
 
     @callback
     def _schedule_retry() -> None:
-        nonlocal attempt
+        nonlocal attempt, degraded_tried
         if done:
             return
         if attempt >= len(RETRY_DELAYS):
+            if not degraded_tried:
+                # One last go, accepting the reduced payload rather than
+                # delivering nothing at all.
+                degraded_tried = True
+                entry.async_create_background_task(
+                    hass,
+                    _attempt("final attempt", degraded=True),
+                    name="pivot_push_settings",
+                )
+                return
             _LOGGER.warning(
                 "Pivot: could not deliver settings to %s after %d attempts — the "
                 "device may be offline, or running firmware without %s. Its "

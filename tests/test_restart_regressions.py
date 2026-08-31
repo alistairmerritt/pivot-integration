@@ -336,3 +336,56 @@ async def test_v2_registered_while_v1_call_in_flight(hass):
 
     assert len(v1_calls) == 1
     assert len(v2_calls) == 1, "v2 repair must still run after the v1 fallback"
+
+
+async def test_degrades_to_v1_when_a_colour_entity_is_missing(hass):
+    """A bank colour entity can be absent rather than merely late.
+
+    Observed on a real device: three configured-colour entities had no state at
+    all while its siblings had 36 entities each. Aborting every attempt would
+    deliver nothing, which is worse than the boolean-only repair that shipped
+    before v2 existed. The last attempt degrades instead of giving up.
+    """
+    v1_calls: list = []
+    v2_calls: list = []
+
+    async def _v1(call):
+        v1_calls.append(call)
+
+    async def _v2(call):
+        v2_calls.append(call)
+
+    hass.services.async_register("esphome", SYNC_SERVICE, _v1)
+    hass.services.async_register("esphome", SYNC_SERVICE_V2, _v2)
+
+    hass.set_state(CoreState.starting)
+    entry = MockConfigEntry(domain=DOMAIN, data=dict(ENTRY_DATA), title="Test VPE")
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    hass.states.async_set(f"text.{SUFFIX}_bank_2_configured_color", "unavailable")
+
+    hass.set_state(CoreState.running)
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+    await hass.async_block_till_done()
+
+    # Nothing yet: incomplete data is retried, not guessed at.
+    assert v1_calls == [] and v2_calls == []
+
+    now = dt_util.utcnow()
+    for delay in (5, 10, 20, 30, 60, 120):
+        now += timedelta(seconds=delay + 1)
+        async_fire_time_changed(hass, now)
+        await hass.async_block_till_done()
+
+    # v2 never fires with partial data; v1 carries the boolean repair.
+    assert v2_calls == []
+    assert len(v1_calls) == 1
+    assert set(v1_calls[0].data) == {
+        "control_mode_in", "show_control_value_in", "dim_when_idle_in",
+        "bank_mirror_1_in", "bank_mirror_2_in", "bank_mirror_3_in",
+        "bank_mirror_4_in",
+        "bank_passive_1_in", "bank_passive_2_in", "bank_passive_3_in",
+        "bank_passive_4_in",
+    }
