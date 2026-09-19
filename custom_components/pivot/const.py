@@ -25,8 +25,15 @@ MANAGEMENT_NEITHER = "neither"
 NUM_BANKS = 4
 
 # Domains where the knob has no meaningful continuous value to control.
-# Single press toggles/fires them; the LED gauge is zeroed when one is assigned.
+# Single press toggles/fires them and the firmware ignores the knob.
+# Open/close-only covers (garage doors) are passive too, but per entity —
+# see entity_mappings.bank_is_passive.
 PASSIVE_DOMAINS: frozenset[str] = frozenset({"scene", "script", "switch", "input_boolean"})
+
+# Passive domains with an on/off state. Their bank value mirrors that state
+# (100 on / 0 off) so the ring shows it: full when on, off when off. The other
+# passive domains (scene, script) are stateless and their value is held at 0.
+STATEFUL_PASSIVE_DOMAINS: frozenset[str] = frozenset({"switch", "input_boolean"})
 
 # RGB tuples matching the firmware LED colours — used for UI hints
 BANK_COLORS_RGB = {

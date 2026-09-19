@@ -94,3 +94,89 @@ def test_sync_context_tracker_is_bounded():
     assert not tracker.is_sync_context(first)
     assert tracker.is_sync_context(latest)
     assert not tracker.is_sync_context(None)
+
+
+# --- Covers -----------------------------------------------------------------
+# supported_features: OPEN=1, CLOSE=2, SET_POSITION=4, STOP=8
+
+BLIND = {"supported_features": 15, "current_position": 40}
+# Meross-style garage opener: open/close only, no position at all.
+GARAGE = {"supported_features": 3}
+# Shutter-style garage door: reports 0/100 but cannot be sent a position.
+GARAGE_WITH_POSITION = {"supported_features": 11, "current_position": 0}
+
+COVER_COMMANDS = ("set_cover_position", "open_cover", "close_cover", "toggle", "stop_cover")
+
+
+def _mock_all_cover_commands(hass):
+    return [async_mock_service(hass, "cover", svc) for svc in COVER_COMMANDS]
+
+
+async def test_apply_positional_cover_sets_position(hass):
+    hass.states.async_set("cover.blind", "open", BLIND)
+    calls = async_mock_service(hass, "cover", "set_cover_position")
+    await apply_value_to_entity(hass, "cover", "cover.blind", 55.0)
+    assert calls[0].data == {"entity_id": "cover.blind", "position": 55}
+
+
+async def test_apply_cover_without_features_attr_falls_back_to_position(hass):
+    hass.states.async_set("cover.blind", "open", {"current_position": 20})
+    calls = async_mock_service(hass, "cover", "set_cover_position")
+    await apply_value_to_entity(hass, "cover", "cover.blind", 30.0)
+    assert calls[0].data["position"] == 30
+
+
+async def test_knob_never_moves_an_open_close_only_cover(hass):
+    """Garage doors are press-only: no knob value, in any state, sends a command."""
+    mocks = _mock_all_cover_commands(hass)
+    for attrs in (GARAGE, GARAGE_WITH_POSITION):
+        for state in ("open", "opening", "closed", "closing", "unknown"):
+            hass.states.async_set("cover.garage", state, attrs)
+            for value in (0.0, 2.0, 49.0, 50.0, 98.0, 100.0):
+                await apply_value_to_entity(hass, "cover", "cover.garage", value)
+    assert all(not calls for calls in mocks)
+
+
+async def test_cover_without_state_keeps_original_behaviour(hass):
+    """No state means no feature info: don't guess, behave as before."""
+    calls = async_mock_service(hass, "cover", "set_cover_position")
+    await apply_value_to_entity(hass, "cover", "cover.gone", 80.0)
+    assert calls[0].data == {"entity_id": "cover.gone", "position": 80}
+
+
+async def test_sync_cover_position(hass):
+    tracker = SyncContextTracker()
+    hass.states.async_set("cover.blind", "open", BLIND)
+    calls = async_mock_service(hass, "number", "set_value")
+    await sync_value_from_entity(hass, "cover", "cover.blind", "number.gauge", tracker)
+    assert calls[0].data["value"] == 40
+
+
+async def test_sync_positionless_cover_shows_full_or_empty_ring(hass):
+    tracker = SyncContextTracker()
+    calls = async_mock_service(hass, "number", "set_value")
+    hass.states.async_set("cover.garage", "open", GARAGE)
+    await sync_value_from_entity(hass, "cover", "cover.garage", "number.gauge", tracker)
+    hass.states.async_set("cover.garage", "closed", GARAGE)
+    await sync_value_from_entity(hass, "cover", "cover.garage", "number.gauge", tracker)
+    assert [c.data["value"] for c in calls] == [100, 0]
+    # Tagged as sync writes, so they can never be mistaken for a knob turn.
+    assert all(tracker.is_sync_context(c.context) for c in calls)
+
+
+async def test_sync_positionless_cover_leaves_gauge_while_moving(hass):
+    tracker = SyncContextTracker()
+    calls = async_mock_service(hass, "number", "set_value")
+    for state in ("opening", "closing", "unknown", "unavailable"):
+        hass.states.async_set("cover.garage", state, GARAGE)
+        await sync_value_from_entity(hass, "cover", "cover.garage", "number.gauge", tracker)
+    assert not calls
+
+
+async def test_sync_positional_cover_without_position_is_not_guessed(hass):
+    """A blind reporting 'open' with no position must not read as 100."""
+    tracker = SyncContextTracker()
+    calls = async_mock_service(hass, "number", "set_value")
+    hass.states.async_set("cover.blind", "open", {"supported_features": 15})
+    await sync_value_from_entity(hass, "cover", "cover.blind", "number.gauge", tracker)
+    assert not calls

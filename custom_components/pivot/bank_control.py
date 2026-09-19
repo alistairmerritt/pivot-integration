@@ -9,10 +9,12 @@ from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 
 from .announcements import ANNOUNCEABLE_DOMAINS, do_tts, format_value_announcement
-from .const import CONF_DEVICE_SUFFIX, NUM_BANKS, PASSIVE_DOMAINS
+from .const import CONF_DEVICE_SUFFIX, NUM_BANKS, STATEFUL_PASSIVE_DOMAINS
 from .entity_mappings import (
     SyncContextTracker,
     apply_value_to_entity,
+    bank_is_passive,
+    bank_value_held_at_zero,
     sync_value_from_entity,
 )
 
@@ -158,8 +160,9 @@ def setup_bank_control_listener(
 
         domain = bank_entity.split(".")[0]
 
-        # Skip passive domains — knob does nothing for scenes/scripts/switches
-        if domain in PASSIVE_DOMAINS:
+        # Skip passive banks — knob does nothing for scenes/scripts/switches
+        # and open/close-only covers
+        if bank_is_passive(hass, bank_entity):
             return
 
         try:
@@ -338,8 +341,10 @@ def setup_bank_control_listener(
         domain = bank_entity.split(".")[0]
         value_entity_id = f"number.{suffix}_bank_{bank_idx + 1}_value"
 
-        # Passive banks (scene/script/switch) have no controllable value — zero the gauge
-        if domain in PASSIVE_DOMAINS:
+        # Stateless passive banks (scene/script) have no value — hold the gauge
+        # at zero. Everything else mirrors its entity, stateful passive banks
+        # (switches, open/close-only covers) included.
+        if bank_value_held_at_zero(bank_entity):
             entry.async_create_background_task(
                 hass,
                 hass.services.async_call(
@@ -371,7 +376,7 @@ def setup_bank_control_listener(
             if text_state is None or text_state.state != changed_entity_id:
                 continue
             domain = changed_entity_id.split(".")[0]
-            if domain not in ANNOUNCEABLE_DOMAINS:
+            if domain not in ANNOUNCEABLE_DOMAINS and domain not in STATEFUL_PASSIVE_DOMAINS:
                 continue
 
             # Skip if Pivot just applied a value to this entity — the entity
@@ -408,8 +413,7 @@ def setup_bank_control_listener(
         """Re-register entity watchers when a bank's assigned entity changes."""
         _register_assigned_entity_watchers()
 
-        # If the active bank was just reassigned to a passive entity, zero the gauge.
-        # Non-active banks are handled lazily when the user next switches to them.
+        # If a bank was just reassigned to a passive entity, set its gauge.
         new_state = event.data.get("new_state")
         if new_state is None or new_state.state in ("", "unknown", "unavailable"):
             return
@@ -432,21 +436,17 @@ def setup_bank_control_listener(
                 bank_idx + 1,
             )
             stale()
-        active_bank_state = hass.states.get(active_bank_entity_id)
-        if active_bank_state is None:
-            return
-        try:
-            active_bank_idx = int(float(active_bank_state.state)) - 1
-        except ValueError:
-            return
-        if active_bank_idx != bank_idx:
-            return
+
+        # Passive banks are set straight away, active or not: the firmware
+        # draws a passive bank's ring from its cached value, so a value left
+        # over from the previous entity (a light's 60%, say) would otherwise
+        # show on a switch bank. Writes to a non-active bank are ignored by
+        # the knob listener and only update the device's cache.
         bank_entity = new_state.state
         if "." not in bank_entity:
             return
-        domain = bank_entity.split(".")[0]
-        if domain in PASSIVE_DOMAINS:
-            value_entity_id = f"number.{suffix}_bank_{bank_idx + 1}_value"
+        value_entity_id = f"number.{suffix}_bank_{bank_idx + 1}_value"
+        if bank_value_held_at_zero(bank_entity):
             entry.async_create_background_task(
                 hass,
                 hass.services.async_call(
@@ -455,6 +455,14 @@ def setup_bank_control_listener(
                     blocking=False,
                 ),
                 name="pivot_zero_passive_bank",
+            )
+        elif bank_is_passive(hass, bank_entity):
+            entry.async_create_background_task(
+                hass,
+                sync_value_from_entity(
+                    hass, bank_entity.split(".")[0], bank_entity, value_entity_id, sync_contexts
+                ),
+                name="pivot_sync_gauge",
             )
 
     _register_assigned_entity_watchers()

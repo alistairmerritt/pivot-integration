@@ -5,6 +5,8 @@ import logging
 
 from homeassistant.core import HomeAssistant
 
+from .entity_mappings import cover_is_open_close_only
+
 _LOGGER = logging.getLogger(__name__)
 
 # Domains that support continuous value announcements (e.g. "Brightness 70 percent").
@@ -35,6 +37,9 @@ def format_value_announcement(hass: HomeAssistant, bank_entity: str, bank_value:
             return None
         return f"Temperature {round(target)} degrees."
     if domain == "cover":
+        if cover_is_open_close_only(entity_state):
+            # Open/close-only: passive bank, the knob does nothing — say nothing.
+            return None
         pos = round(bank_value)
         if pos == 0:
             return "Closing."

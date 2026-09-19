@@ -5,9 +5,51 @@ import logging
 import math
 from collections import OrderedDict
 
-from homeassistant.core import Context, HomeAssistant
+from homeassistant.components.cover import CoverEntityFeature
+from homeassistant.core import Context, HomeAssistant, State
+
+from .const import PASSIVE_DOMAINS, STATEFUL_PASSIVE_DOMAINS
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def cover_is_open_close_only(state: State | None) -> bool:
+    """Return True for a cover that opens and closes but takes no position.
+
+    Most garage doors. Some still report a current_position of 0/100, so
+    reporting a position is not the same as accepting one: only the
+    SET_POSITION feature bit decides. HA keeps supported_features on
+    unavailable entities, so the answer holds through outages. With no
+    state or no feature attribute, answer False — every caller then keeps
+    its original (pre open/close-only) behaviour rather than guessing.
+    """
+    if state is None:
+        return False
+    features = state.attributes.get("supported_features")
+    if features is None:
+        return False
+    try:
+        return not int(features) & CoverEntityFeature.SET_POSITION
+    except (TypeError, ValueError):
+        return False
+
+
+def bank_is_passive(hass: HomeAssistant, entity_id: str) -> bool:
+    """Return True if the knob has no value to control for this entity."""
+    domain = entity_id.split(".")[0] if "." in entity_id else ""
+    if domain in PASSIVE_DOMAINS:
+        return True
+    return domain == "cover" and cover_is_open_close_only(hass.states.get(entity_id))
+
+
+def bank_value_held_at_zero(entity_id: str) -> bool:
+    """Return True for stateless passive entities (scene, script).
+
+    Their bank value is always 0, so the ring stays off. Stateful passive
+    entities (switches, open/close-only covers) mirror their state instead.
+    """
+    domain = entity_id.split(".")[0] if "." in entity_id else ""
+    return domain in PASSIVE_DOMAINS and domain not in STATEFUL_PASSIVE_DOMAINS
 
 
 class SyncContextTracker:
@@ -82,6 +124,11 @@ async def apply_value_to_entity(
             {"entity_id": entity_id, "volume_level": round(value / 100, 2)},
         )
     elif domain == "cover":
+        # Open/close-only covers (most garage doors) reject set_cover_position.
+        # Their banks are passive, so the firmware ignores the knob; this
+        # guards the window before the passive flag reaches the device.
+        if cover_is_open_close_only(hass.states.get(entity_id)):
+            return
         await hass.services.async_call(
             "cover", "set_cover_position",
             {"entity_id": entity_id, "position": round(value)},
@@ -155,6 +202,24 @@ async def sync_value_from_entity(
         pos = state.attributes.get("current_position")
         if pos is not None:
             synced_value = round(float(pos))
+        # Open/close-only cover with no position (e.g. a garage door): show
+        # open/closed as a full/empty ring. Display only — the bank is
+        # passive. Leave the gauge alone while it is moving; the settled state
+        # syncs it. A cover that CAN take a position but isn't reporting one
+        # keeps its gauge — a guessed 100 would send it to ~98% on the next
+        # detent.
+        elif cover_is_open_close_only(state):
+            if state.state == "open":
+                synced_value = 100.0
+            elif state.state == "closed":
+                synced_value = 0.0
+    elif domain in STATEFUL_PASSIVE_DOMAINS:
+        # Switch / input_boolean: display only (passive bank) — full ring
+        # when on, off when off. Unknown/unavailable leave the gauge alone.
+        if state.state == "on":
+            synced_value = 100.0
+        elif state.state == "off":
+            synced_value = 0.0
     elif domain in ("input_number", "number"):
         try:
             raw = float(state.state)

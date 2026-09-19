@@ -19,14 +19,18 @@ from .const import (
     CONF_TTS_ENTITY,
     MANAGEMENT_BLUEPRINTS,
     NUM_BANKS,
-    PASSIVE_DOMAINS,
     option_or_data,
 )
 from .const import (
     entity_id as make_entity_id,
 )
 from .device_sync import setup_device_sync
-from .entity_mappings import SyncContextTracker
+from .entity_mappings import (
+    SyncContextTracker,
+    bank_is_passive,
+    bank_value_held_at_zero,
+    sync_value_from_entity,
+)
 from .mirror import setup_mirror_listeners
 
 _LOGGER = logging.getLogger(__name__)
@@ -137,19 +141,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: PivotConfigEntry) -> boo
     if unsub_button:
         data.unsubs.append(unsub_button)
 
-    # Zero passive banks on startup so firmware cache is correct after HA restarts.
+    # Set passive banks on startup so firmware cache is correct after HA
+    # restarts: stateless ones (scene/script) to zero, stateful ones (switch,
+    # open/close-only cover) to their entity's state. An entity not loaded yet
+    # is picked up by the assigned-entity watcher when its state appears.
     for _i in range(NUM_BANKS):
         _text_eid = f"text.{suffix}_bank_{_i + 1}_entity"
         _value_eid = f"number.{suffix}_bank_{_i + 1}_value"
 
-        async def _zero_if_passive(t_eid=_text_eid, v_eid=_value_eid) -> None:
+        async def _init_passive_bank_value(t_eid=_text_eid, v_eid=_value_eid) -> None:
             text_state = hass.states.get(t_eid)
             if text_state is None or text_state.state in ("", "unknown", "unavailable"):
                 return
             bank_entity = text_state.state
             if "." not in bank_entity:
                 return
-            if bank_entity.split(".")[0] in PASSIVE_DOMAINS:
+            if bank_value_held_at_zero(bank_entity):
                 try:
                     await hass.services.async_call(
                         "number", "set_value",
@@ -158,9 +165,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: PivotConfigEntry) -> boo
                     )
                 except Exception as err:
                     _LOGGER.debug("Pivot: could not zero passive bank value %s: %s", v_eid, err)
+            elif bank_is_passive(hass, bank_entity):
+                await sync_value_from_entity(
+                    hass, bank_entity.split(".")[0], bank_entity, v_eid, data.sync_contexts
+                )
 
         entry.async_create_background_task(
-            hass, _zero_if_passive(), name="pivot_zero_passive_bank"
+            hass, _init_passive_bank_value(), name="pivot_init_passive_bank"
         )
 
     data.unsubs.extend(setup_mirror_listeners(hass, entry))
