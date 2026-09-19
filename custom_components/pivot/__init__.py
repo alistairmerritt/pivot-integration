@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 
 from .bank_control import setup_bank_control_listener
 from .blueprints import install_blueprints
@@ -17,6 +18,7 @@ from .const import (
     CONF_MANAGEMENT_MODE,
     CONF_MEDIA_PLAYER_ENTITY,
     CONF_TTS_ENTITY,
+    DOMAIN,
     MANAGEMENT_BLUEPRINTS,
     NUM_BANKS,
     option_or_data,
@@ -31,6 +33,7 @@ from .entity_mappings import (
     bank_value_held_at_zero,
     sync_value_from_entity,
 )
+from .link_check import link_issue_id, setup_link_check
 from .mirror import setup_mirror_listeners
 
 _LOGGER = logging.getLogger(__name__)
@@ -141,6 +144,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: PivotConfigEntry) -> boo
     if unsub_button:
         data.unsubs.append(unsub_button)
 
+    # Raise a Repairs issue if the entry is linked to a device it cannot hear.
+    data.unsubs.extend(setup_link_check(hass, entry, data.sync_contexts))
+
     # Set passive banks on startup so firmware cache is correct after HA
     # restarts: stateless ones (scene/script) to zero, stateful ones (switch,
     # open/close-only cover) to their entity's state. An entity not loaded yet
@@ -204,3 +210,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: PivotConfigEntry) -> bo
     data.announce_cancels.clear()
 
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: PivotConfigEntry) -> None:
+    """Clean up when a Pivot config entry is deleted."""
+    ir.async_delete_issue(hass, DOMAIN, link_issue_id(entry))

@@ -3,14 +3,16 @@
     "abort": {
       "already_configured": "This device is already configured.",
       "no_esphome_devices": "No ESPHome devices were found. Add your Pivot device to ESPHome first.",
-      "suffix_collision": "Another Pivot entry already uses this device suffix."
+      "suffix_collision": "Another Pivot entry already uses this device suffix.",
+      "reconfigure_successful": "The Pivot entry is now linked to the selected device and has been reloaded."
     },
     "error": {
       "cannot_read_device_name": "Could not determine the ESPHome device name. Check the ESPHome integration logs.",
       "device_not_found": "The selected device could not be found in the device registry.",
       "must_confirm_firmware": "You must confirm the device is running Pivot firmware before continuing.",
       "suffix_collision": "This device suffix is already in use by another Pivot entry. Choose a different suffix.",
-      "suffix_required": "A device suffix is required."
+      "suffix_required": "A device suffix is required.",
+      "device_in_use": "That device is already used by another Pivot entry."
     },
     "step": {
       "user": {
@@ -58,6 +60,13 @@
         "data_description": {
           "timer_banks": "Timers are an optional add-on feature. Select which bank should act as a timer — that bank's entity assignment is ignored and it will be controlled by the Pivot — Timer blueprint instead. See the Pivot docs for timer setup instructions."
         }
+      },
+      "reconfigure": {
+        "title": "Change the linked device",
+        "description": "Choose the ESPHome device this Pivot entry controls. Use this if the VPE was added to Home Assistant again (for example after re-adopting it in ESPHome) and pressing the button stopped working.\n\nPick the device whose button is available — devices marked **(unavailable)** are offline or old copies, and **(no button)** are other ESPHome devices.\n\nOnly the link changes. The suffix (**{suffix}**), bank assignments and settings are kept, so the firmware on the device you choose must use the same `device_suffix`.\n\nAfterwards, update anything that points at the old device's button entity directly — the **Button event entity** input of the Pivot Timer automation, and any automation of your own that triggers on it. Automations using the `pivot_button_press` event need no change.",
+        "data": {
+          "device_id": "ESPHome device"
+        }
       }
     }
   },
@@ -79,7 +88,7 @@
       },
       "banks": {
         "title": "Assign entities to banks",
-        "description": "Choose which entity each bank controls. All banks are optional — leave any empty to skip it.\n\n**How it works:** in Control Mode, turn the knob to adjust the entity (brightness, volume, fan speed, temperature, etc.) and press the button to toggle it on/off.\n\n**Scenes & scripts** activate on button press only — the knob has no effect for those.",
+        "description": "Choose which entity each bank controls. All banks are optional — leave any empty to skip it.\n\n**How it works:** in Control Mode, turn the knob to adjust the entity (brightness, volume, fan speed, temperature, etc.) and press the button to toggle it on/off.\n\n**Scenes, scripts, switches, input_booleans and open/close-only covers** (such as most garage doors) respond to the button only — the knob has no effect for those. Switches, input_booleans and garage doors show their on/off or open/closed state on the LED ring (firmware v0.0.27 or later).",
         "data": {
           "timer_banks": "Timer bank",
           "bank_0_entity": "Bank 1 entity",
@@ -91,6 +100,12 @@
           "timer_banks": "Timers are an optional add-on feature. Select which bank should act as a timer — that bank's entity assignment is ignored and it will be controlled by the Pivot — Timer blueprint instead. See the Pivot docs for timer setup instructions."
         }
       }
+    }
+  },
+  "issues": {
+    "button_unreachable": {
+      "title": "Pivot can't hear the button on {name}",
+      "description": "Button presses on **{name}** aren't reaching Pivot: the Pivot entry is linked to a copy of the device whose button is missing or unavailable, even though the device itself may be working normally (the knob can still work). This usually happens when the VPE is added to Home Assistant again — for example after re-adopting it in ESPHome.\n\nTo fix it, go to **Settings → Devices & services → Pivot**, open the menu (⋮) on **{name}**, choose **Reconfigure**, and pick the device whose button is available. Your bank assignments and settings are kept.\n\nThis message clears itself once the button can be heard again."
     }
   }
 }

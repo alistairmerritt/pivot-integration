@@ -12,6 +12,7 @@ from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import selector
 
+from .button import get_button_event_entity
 from .const import (
     CONF_ANNOUNCEMENTS,
     CONF_DEVICE_ID,
@@ -164,7 +165,7 @@ def _bank_entity_schema(current: dict[str, str] | None = None) -> vol.Schema:
 
     entity_sel = selector.EntitySelector(
         selector.EntitySelectorConfig(
-            domain=["light", "switch", "fan", "climate", "media_player", "cover", "scene", "script", "input_number", "number"],
+            domain=["light", "switch", "input_boolean", "fan", "climate", "media_player", "cover", "scene", "script", "input_number", "number"],
             multiple=False,
         )
     )
@@ -196,8 +197,40 @@ def _apply_timer_banks(user_input: dict) -> dict[str, str]:
     return result
 
 
+def _move_pivot_device(
+    hass: HomeAssistant, entry: config_entries.ConfigEntry, new_device_id: str
+) -> None:
+    """Carry the entry's own Pivot device across to the new device link.
+
+    Pivot's device is identified by the linked ESPHome device's ID, so without
+    this the reload would build a SECOND Pivot device and move every entity to
+    it — losing the device's area, any name given to it, and any automation
+    that targets the device. Re-identifying the existing device keeps all of
+    that. Entity IDs and unique IDs are unaffected either way.
+    """
+    old_device_id = entry.data.get(CONF_DEVICE_ID)
+    if not old_device_id or old_device_id == new_device_id:
+        return
+    dev_reg = dr.async_get(hass)
+    pivot_device = dev_reg.async_get_device(identifiers={(DOMAIN, old_device_id)})
+    if pivot_device is None or entry.entry_id not in pivot_device.config_entries:
+        return
+    if dev_reg.async_get_device(identifiers={(DOMAIN, new_device_id)}) is not None:
+        # A Pivot device for the target already exists (a previous entry for
+        # that device left one behind). Leave both alone rather than risk a
+        # registry collision; the reload attaches the entities to it.
+        _LOGGER.debug(
+            "Pivot: a device already exists for %s — not re-identifying %s",
+            new_device_id, pivot_device.id,
+        )
+        return
+    dev_reg.async_update_device(
+        pivot_device.id, new_identifiers={(DOMAIN, new_device_id)}
+    )
+
+
 class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Three-step config flow for Pivot."""
+    """Config flow for Pivot: four steps to add a device, plus reconfigure."""
 
     VERSION = 1
 
@@ -345,6 +378,83 @@ class PivotConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="banks_initial",
             data_schema=_bank_entity_schema({}),
+        )
+
+    # ------------------------------------------------------------------
+    # Reconfigure: re-link the entry to an ESPHome device
+    # ------------------------------------------------------------------
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Point this entry at a different ESPHome device, keeping everything else.
+
+        Needed when the VPE is added to Home Assistant again — re-adopted in
+        ESPHome, reset, or first added by IP address: it becomes a new device,
+        and the entry kept watching the old one, so button presses did nothing.
+        Only the device link changes. The suffix must keep matching the
+        firmware, and bank assignments and settings live in Pivot's own
+        entities, which survive the reload.
+        """
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        esphome_devices = _get_esphome_devices(self.hass)
+        if not esphome_devices:
+            return self.async_abort(reason="no_esphome_devices")
+
+        if user_input is not None:
+            device_id = user_input[CONF_DEVICE_ID]
+            device = dr.async_get(self.hass).async_get(device_id)
+            in_use = any(
+                other.entry_id != entry.entry_id
+                and other.data.get(CONF_DEVICE_ID) == device_id
+                for other in self.hass.config_entries.async_entries(DOMAIN)
+            )
+            if in_use:
+                errors[CONF_DEVICE_ID] = "device_in_use"
+            elif device is None:
+                errors[CONF_DEVICE_ID] = "device_not_found"
+            else:
+                esphome_name = _get_esphome_device_name(self.hass, device)
+                if not esphome_name:
+                    errors[CONF_DEVICE_ID] = "cannot_read_device_name"
+                else:
+                    _move_pivot_device(self.hass, entry, device_id)
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data_updates={
+                            CONF_DEVICE_ID: device_id,
+                            CONF_ESPHOME_DEVICE_NAME: esphome_name,
+                        },
+                    )
+
+        # Several copies of one VPE can exist after a re-add, often with
+        # similar names. Flag the ones whose button cannot be heard, so the
+        # live copy is easy to pick. The list holds every ESPHome device, so
+        # one with no button at all (a plug, a sensor) is labelled as such.
+        labels: dict[str, str] = {}
+        for candidate_id, label in esphome_devices.items():
+            button_entity_id = get_button_event_entity(self.hass, candidate_id)
+            if button_entity_id is None:
+                label = f"{label} (no button)"
+            else:
+                button_state = self.hass.states.get(button_entity_id)
+                if button_state is None or button_state.state == "unavailable":
+                    label = f"{label} (unavailable)"
+            labels[candidate_id] = label
+
+        current = entry.data.get(CONF_DEVICE_ID)
+        device_key = (
+            vol.Required(CONF_DEVICE_ID, default=current)
+            if current in labels
+            else vol.Required(CONF_DEVICE_ID)
+        )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema({device_key: vol.In(labels)}),
+            errors=errors,
+            description_placeholders={
+                "suffix": entry.data.get(CONF_DEVICE_SUFFIX, ""),
+            },
         )
 
     @staticmethod
