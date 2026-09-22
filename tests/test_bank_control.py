@@ -169,3 +169,77 @@ async def test_pending_command_cancelled_on_bank_reassignment(hass, setup_pivot)
     await hass.async_block_till_done()
 
     assert calls == [], "must not command the entity that was just unassigned"
+
+
+async def _bank_value(hass, bank: int) -> float:
+    return float(hass.states.get(f"number.{SUFFIX}_bank_{bank}_value").state)
+
+
+async def test_repointing_a_bank_syncs_the_new_entity_value(hass, setup_pivot):
+    """The gauge must follow the new entity, not keep the old one's value.
+
+    Re-pointing used to sync only when the NEW entity was passive, so a bank
+    moved from a light to a number kept the light's brightness on the dial
+    until something else happened to re-sync it.
+    """
+    hass.states.async_set("light.pendant", "on", {"brightness": 255})
+    await _assign_bank(hass, 1, "light.pendant")
+    await hass.async_block_till_done()
+    # The dial sits at the light's brightness.
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": f"number.{SUFFIX}_bank_1_value", "value": 100},
+        blocking=True,
+    )
+    assert await _bank_value(hass, 1) == 100
+
+    hass.states.async_set("input_number.battery", "57", {"min": 0, "max": 100, "step": 1})
+    await _assign_bank(hass, 1, "input_number.battery")
+    await hass.async_block_till_done()
+
+    assert await _bank_value(hass, 1) == 57
+
+
+async def test_repointing_syncs_a_bank_that_is_not_active(hass, setup_pivot):
+    """The firmware caches every bank's value, not just the active one."""
+    hass.states.async_set("light.pendant", "on", {"brightness": 255})
+    await _assign_bank(hass, 3, "light.pendant")
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": f"number.{SUFFIX}_bank_3_value", "value": 100},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    hass.states.async_set("input_number.battery", "20", {"min": 0, "max": 100, "step": 1})
+    await _assign_bank(hass, 3, "input_number.battery")
+    await hass.async_block_till_done()
+
+    assert await _bank_value(hass, 3) == 20
+
+
+async def test_repointing_does_not_command_the_new_entity(hass, setup_pivot):
+    """The sync write must not be mistaken for a knob turn.
+
+    An untracked write to the bank value would be applied to the assigned
+    entity; Pivot's own sync writes carry a tracked context and must not be.
+    """
+    hass.states.async_set("light.pendant", "on", {"brightness": 255})
+    await _assign_bank(hass, 1, "light.pendant")
+    await _control_mode(hass, True)
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": f"number.{SUFFIX}_bank_1_value", "value": 100},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    hass.states.async_set("input_number.battery", "57", {"min": 0, "max": 100, "step": 1})
+    calls = async_mock_service(hass, "input_number", "set_value")
+    knob_events = async_capture_events(hass, "pivot_knob_turn")
+    await _assign_bank(hass, 1, "input_number.battery")
+    await hass.async_block_till_done()
+
+    assert await _bank_value(hass, 1) == 57
+    assert not calls
+    assert not knob_events

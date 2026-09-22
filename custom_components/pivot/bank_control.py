@@ -437,11 +437,13 @@ def setup_bank_control_listener(
             )
             stale()
 
-        # Passive banks are set straight away, active or not: the firmware
-        # draws a passive bank's ring from its cached value, so a value left
-        # over from the previous entity (a light's 60%, say) would otherwise
-        # show on a switch bank. Writes to a non-active bank are ignored by
-        # the knob listener and only update the device's cache.
+        # Set the gauge straight away, active bank or not: it still holds the
+        # PREVIOUS entity's value, which is now meaningless — a light's 60%
+        # left on a switch bank, or on a battery helper reading 57. Same rule
+        # as a bank switch: stateless passive banks hold zero, everything else
+        # mirrors its entity. Writes to a non-active bank are ignored by the
+        # knob listener and only update the device's cache, and the sync write
+        # carries a tracked context so it is never read as a knob turn.
         bank_entity = new_state.state
         if "." not in bank_entity:
             return
@@ -456,7 +458,7 @@ def setup_bank_control_listener(
                 ),
                 name="pivot_zero_passive_bank",
             )
-        elif bank_is_passive(hass, bank_entity):
+        else:
             entry.async_create_background_task(
                 hass,
                 sync_value_from_entity(
