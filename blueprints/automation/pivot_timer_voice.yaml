@@ -183,6 +183,8 @@ conditions:
 actions:
   # Resolve start duration in total seconds for all start trigger variants.
   # Returns 0 for 'start' (no duration — use current timer_duration).
+  # Speech-to-text writes "Set a 5-minute timer", which fills the slot with "5-";
+  # trim('-') drops the hyphen so it doesn't fall back to the default duration.
   - variables:
       start_duration_secs: >
         {% set words = {
@@ -195,13 +197,13 @@ actions:
           'fifty': 50, 'sixty': 60, 'ninety': 90
         } %}
         {% if trigger.id == 'start_secs' %}
-          {% set d = trigger.slots.duration | lower | trim %}
+          {% set d = trigger.slots.duration | lower | trim | trim('-') %}
           {{ words.get(d, d | int(0)) }}
         {% elif trigger.id == 'start_mins' %}
-          {% set d = trigger.slots.duration | lower | trim %}
+          {% set d = trigger.slots.duration | lower | trim | trim('-') %}
           {{ words.get(d, d | int(0)) * 60 }}
         {% elif trigger.id == 'start_hours' %}
-          {% set d = trigger.slots.duration | lower | trim %}
+          {% set d = trigger.slots.duration | lower | trim | trim('-') %}
           {{ words.get(d, d | int(0)) * 3600 }}
         {% elif trigger.id == 'start_15' %}
           900
@@ -212,8 +214,8 @@ actions:
         {% elif trigger.id == 'start_150' %}
           9000
         {% elif trigger.id == 'start_combined' %}
-          {% set h = trigger.slots.hours | lower | trim %}
-          {% set m = trigger.slots.minutes | lower | trim %}
+          {% set h = trigger.slots.hours | lower | trim | trim('-') %}
+          {% set m = trigger.slots.minutes | lower | trim | trim('-') %}
           {{ (words.get(h, h | int(0)) * 60 + words.get(m, m | int(0))) * 60 }}
         {% else %}
           0
