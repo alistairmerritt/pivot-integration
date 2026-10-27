@@ -132,6 +132,15 @@ async def _use_blueprint(hass, tmp_path, name: str, inputs: dict) -> None:
     await hass.async_block_till_done()
 
 
+def _between_gauge_updates(freezer) -> None:
+    """Freeze the clock clear of Timer Control's gauge updates on the :00 and :30.
+
+    On the real clock one lands mid-test now and then, and with these tests'
+    far-off timer end it rightly fills the gauge to 100.
+    """
+    freezer.move_to(dt_util.utcnow().replace(second=5, microsecond=0) + timedelta(minutes=1))
+
+
 TIMER_INPUTS = {
     "suffix": SUFFIX,
     "bank": 4,
@@ -141,8 +150,9 @@ TIMER_INPUTS = {
 
 
 @pytest.mark.parametrize("expected_lingering_timers", [True])
-async def test_timer_control_cancel_keeps_the_duration(hass, running_timer, tmp_path):
+async def test_timer_control_cancel_keeps_the_duration(hass, running_timer, tmp_path, freezer):
     """The dashboard's cancel (a long_press event) through the real Timer Control blueprint."""
+    _between_gauge_updates(freezer)
     await _use_blueprint(hass, tmp_path, "pivot_timer.yaml", TIMER_INPUTS)
     hass.bus.async_fire(
         "pivot_button_press",
@@ -295,8 +305,9 @@ async def test_configure_can_clear_the_voice_entities(hass):
 # --- The button reconnecting is not a long press -------------------------------
 
 @pytest.mark.parametrize("expected_lingering_timers", [True])
-async def test_timer_survives_the_button_reconnecting(hass, running_timer, tmp_path):
+async def test_timer_survives_the_button_reconnecting(hass, running_timer, tmp_path, freezer):
     """A reconnecting VPE brings back its button's last event; a long press there cancelled the timer."""
+    _between_gauge_updates(freezer)
     button = TIMER_INPUTS["button_event_entity"]
     long_press = {"event_type": "long_press", "device_class": "button"}
     hass.states.async_set(button, "2026-10-27T08:00:00.000+00:00", long_press)
@@ -349,8 +360,9 @@ async def test_voice_timers_longer_than_an_hour_start(hass, running_timer, tmp_p
 # --- A physical long press, through the button's own event ---------------------
 
 @pytest.mark.parametrize("expected_lingering_timers", [True])
-async def test_physical_long_press_cancel_keeps_the_duration(hass, running_timer, tmp_path):
+async def test_physical_long_press_cancel_keeps_the_duration(hass, running_timer, tmp_path, freezer):
     """Run from the button's state change, the cancel's gauge write reached Pivot after the timer went idle."""
+    _between_gauge_updates(freezer)
     button = TIMER_INPUTS["button_event_entity"]
     hass.states.async_set(button, "2026-10-27T08:00:00.000+00:00", {"event_type": "single_press"})
     await _use_blueprint(hass, tmp_path, "pivot_timer.yaml", TIMER_INPUTS)

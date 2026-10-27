@@ -1,5 +1,8 @@
-pytest-homeassistant-custom-component==0.13.345
+# Home Assistant 2026.10.4. CI also runs the tests on an older release
+# (requirements_test_2026_7.txt) to keep the compatibility paths covered.
+pytest-homeassistant-custom-component==0.13.375
 # The voice blueprint's conversation triggers need Home Assistant's
 # conversation integration, pinned to what that Home Assistant release uses.
-hassil==3.8.0
-home-assistant-intents==2026.6.24
+gazetteer-matcher==1.1.0
+hassil==3.12.1
+home-assistant-intents==2026.10.6

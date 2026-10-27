@@ -26,6 +26,7 @@ from .const import (
     MANAGEMENT_BLUEPRINTS,
     NUM_BANKS,
     device_entry_ids,
+    devices_with_identifier,
     make_suffix,
     option_or_data,
 )
@@ -40,17 +41,12 @@ def _get_esphome_devices(hass: HomeAssistant) -> dict[str, str]:
     dev_reg = dr.async_get(hass)
     pivot_candidates: dict[str, str] = {}
 
-    for device in dev_reg.devices.values():
-        esphome_entries = [
-            eid for eid in device_entry_ids(device)
-            if (entry := hass.config_entries.async_get_entry(eid)) is not None
-            and entry.domain == "esphome"
-        ]
-        if not esphome_entries:
-            continue
-
-        label = device.name_by_user or device.name or device.id
-        pivot_candidates[device.id] = label
+    # Through each ESPHome entry's devices: reading dev_reg.devices as a
+    # mapping is deprecated since Home Assistant 2026.10 and stops working
+    # in 2027.9.
+    for esphome_entry in hass.config_entries.async_entries("esphome"):
+        for device in dr.async_entries_for_config_entry(dev_reg, esphome_entry.entry_id):
+            pivot_candidates[device.id] = device.name_by_user or device.name or device.id
 
     return pivot_candidates
 
@@ -227,10 +223,16 @@ def _move_pivot_device(
     if not old_device_id or old_device_id == new_device_id:
         return
     dev_reg = dr.async_get(hass)
-    pivot_device = dev_reg.async_get_device(identifiers={(DOMAIN, old_device_id)})
-    if pivot_device is None or entry.entry_id not in device_entry_ids(pivot_device):
+    pivot_device = next(
+        (
+            device for device in devices_with_identifier(dev_reg, (DOMAIN, old_device_id))
+            if entry.entry_id in device_entry_ids(device)
+        ),
+        None,
+    )
+    if pivot_device is None:
         return
-    if dev_reg.async_get_device(identifiers={(DOMAIN, new_device_id)}) is not None:
+    if devices_with_identifier(dev_reg, (DOMAIN, new_device_id)):
         # A Pivot device for the target already exists (a previous entry for
         # that device left one behind). Leave both alone rather than risk a
         # registry collision; the reload attaches the entities to it.

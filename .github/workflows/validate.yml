@@ -35,14 +35,23 @@ jobs:
           version: 0.16.5
 
   tests:
-    name: Tests
+    name: Tests (HA ${{ matrix.ha }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The current release, and an older one for the pre-2026.10 code paths.
+          - ha: "2026.10"
+            requirements: requirements_test.txt
+          - ha: "2026.7"
+            requirements: requirements_test_2026_7.txt
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - run: pip install -r requirements_test.txt
+      - run: pip install -r ${{ matrix.requirements }}
       - run: pytest -q
 
   frontend:

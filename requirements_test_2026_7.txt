@@ -1,0 +1,5 @@
+# Home Assistant 2026.7.1: an older release, so the code paths for Home
+# Assistant before 2026.10 stay tested.
+pytest-homeassistant-custom-component==0.13.345
+hassil==3.8.0
+home-assistant-intents==2026.6.24

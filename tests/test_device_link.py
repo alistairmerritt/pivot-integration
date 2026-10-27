@@ -32,12 +32,21 @@ from custom_components.pivot.const import (
     CONF_DEVICE_SUFFIX,
     CONF_ESPHOME_DEVICE_NAME,
     DOMAIN,
+    device_entry_ids,
+    devices_with_identifier,
 )
 from custom_components.pivot.device_sync import RETRY_DELAYS
 
 from .const import ENTRY_DATA, ESPHOME_NAME, SUFFIX
 
 BUTTON_PRESSED = "2026-01-01T00:00:00.000+00:00"
+
+
+def _pivot_device(dev_reg, identifier) -> dr.DeviceEntry | None:
+    """The one device with this identifier, on any Home Assistant version."""
+    devices = devices_with_identifier(dev_reg, identifier)
+    assert len(devices) <= 1, devices
+    return devices[0] if devices else None
 
 
 async def _esphome_device(
@@ -134,7 +143,7 @@ async def test_push_follows_a_rename_during_the_session(hass):
     entry = _pivot_entry(hass, device.id, stored_name="first-name")
     await _setup_during_startup(hass, entry)
 
-    esphome_entry = hass.config_entries.async_get_entry(next(iter(device.config_entries)))
+    esphome_entry = hass.config_entries.async_get_entry(next(iter(device_entry_ids(device))))
     hass.config_entries.async_update_entry(
         esphome_entry, data={**esphome_entry.data, "device_name": "second-name"}
     )
@@ -437,7 +446,7 @@ async def test_reconfigure_keeps_the_pivot_device_and_its_customisation(hass):
     await _setup(hass, entry)
 
     dev_reg = dr.async_get(hass)
-    pivot_device = dev_reg.async_get_device(identifiers={(DOMAIN, old.id)})
+    pivot_device = _pivot_device(dev_reg, (DOMAIN, old.id))
     assert pivot_device is not None
     dev_reg.async_update_device(pivot_device.id, name_by_user="Kitchen dial")
     entity_id = f"number.{SUFFIX}_bank_1_value"
@@ -447,14 +456,15 @@ async def test_reconfigure_keeps_the_pivot_device_and_its_customisation(hass):
     await hass.config_entries.flow.async_configure(result["flow_id"], {CONF_DEVICE_ID: new.id})
     await hass.async_block_till_done()
 
-    moved = dev_reg.async_get_device(identifiers={(DOMAIN, new.id)})
+    moved = _pivot_device(dev_reg, (DOMAIN, new.id))
     assert moved is not None
     assert moved.id == pivot_device.id            # same device, not a new one
     assert moved.name_by_user == "Kitchen dial"   # customisation kept
-    assert dev_reg.async_get_device(identifiers={(DOMAIN, old.id)}) is None
+    assert _pivot_device(dev_reg, (DOMAIN, old.id)) is None
     assert er.async_get(hass).async_get(entity_id).device_id == moved.id
     pivot_devices = [
-        d for d in dev_reg.devices.values()
+        d for e in hass.config_entries.async_entries()
+        for d in dr.async_entries_for_config_entry(dev_reg, e.entry_id)
         if any(i[0] == DOMAIN for i in d.identifiers)
     ]
     assert len(pivot_devices) == 1
@@ -502,7 +512,7 @@ async def test_reconfigure_recovers_an_entry_whose_device_was_deleted(hass):
     assert _issue(hass, entry) is not None
 
     dev_reg = dr.async_get(hass)
-    pivot_device = dev_reg.async_get_device(identifiers={(DOMAIN, "deleted-device-id")})
+    pivot_device = _pivot_device(dev_reg, (DOMAIN, "deleted-device-id"))
     assert pivot_device is not None
 
     live = await _esphome_device(hass, "live-copy", "aa:bb:cc:00:04:00")
@@ -515,7 +525,7 @@ async def test_reconfigure_recovers_an_entry_whose_device_was_deleted(hass):
     assert result["reason"] == "reconfigure_successful"
     assert entry.data[CONF_DEVICE_ID] == live.id
     assert _issue(hass, entry) is None
-    moved = dev_reg.async_get_device(identifiers={(DOMAIN, live.id)})
+    moved = _pivot_device(dev_reg, (DOMAIN, live.id))
     assert moved is not None and moved.id == pivot_device.id
 
     presses = async_capture_events(hass, "pivot_button_press")

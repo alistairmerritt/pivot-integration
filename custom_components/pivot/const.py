@@ -82,6 +82,20 @@ def device_entry_ids(device: Any) -> set[str]:
     return {device.config_entry_id} if device.config_entry_id else set()
 
 
+def devices_with_identifier(dev_reg: Any, identifier: tuple[str, str]) -> list:
+    """Return every device registry entry that carries this identifier.
+
+    Home Assistant 2026.10 lets one identifier appear on devices of several
+    config entries, and deprecated `async_get_device` (which returns just one)
+    in favour of `async_get_devices`; the old call stops working in 2027.8.
+    Older versions only have `async_get_device`.
+    """
+    if hasattr(dev_reg, "async_get_devices"):
+        return dev_reg.async_get_devices(identifiers={identifier})
+    device = dev_reg.async_get_device(identifiers={identifier})
+    return [device] if device is not None else []
+
+
 def make_suffix(esphome_device_name: str) -> str:
     """
     Convert an ESPHome device name into a safe entity ID suffix.

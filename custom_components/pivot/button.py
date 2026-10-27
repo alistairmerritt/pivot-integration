@@ -14,7 +14,6 @@ from .const import (
     CONF_DEVICE_ID,
     CONF_DEVICE_SUFFIX,
     CONF_ESPHOME_DEVICE_NAME,
-    device_entry_ids,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -73,16 +72,16 @@ def setup_button_event_listener(
     if not device_id:
         esphome_name = entry.data.get(CONF_ESPHOME_DEVICE_NAME)
         if esphome_name:
+            # Through each ESPHome entry's devices: reading dev_reg.devices
+            # as a mapping is deprecated since Home Assistant 2026.10.
             dev_reg = dr.async_get(hass)
-            for device in dev_reg.devices.values():
-                for eid in device_entry_ids(device):
-                    cfg = hass.config_entries.async_get_entry(eid)
-                    if cfg and cfg.domain == "esphome":
-                        host = (cfg.data.get("name") or cfg.data.get("host") or "").removesuffix(".local").strip()
-                        if host == esphome_name:
-                            device_id = device.id
-                            break
-                if device_id:
+            for cfg in hass.config_entries.async_entries("esphome"):
+                name = (
+                    cfg.data.get("device_name") or cfg.data.get("name") or cfg.data.get("host") or ""
+                ).removesuffix(".local").strip()
+                devices = dr.async_entries_for_config_entry(dev_reg, cfg.entry_id)
+                if name == esphome_name and devices:
+                    device_id = devices[0].id
                     break
         if not device_id:
             _LOGGER.warning(
