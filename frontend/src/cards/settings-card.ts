@@ -7,6 +7,7 @@ import '../slider';
 import { tokens } from '../styles';
 import type { HomeAssistant } from '../types';
 import { PivotCardBase, type PivotCardConfig } from './base';
+import { defineElement } from '../register';
 
 export interface SettingsCardConfig extends PivotCardConfig {
   rows?: SettingsRow[];
@@ -225,4 +226,4 @@ export class PivotSettingsCard extends PivotCardBase<SettingsCardConfig> {
   }
 }
 
-if (!customElements.get('pivot-settings-card')) customElements.define('pivot-settings-card', PivotSettingsCard);
+defineElement('pivot-settings-card', PivotSettingsCard);

@@ -31,6 +31,7 @@ import '../slider';
 import { tokens } from '../styles';
 import type { HomeAssistant } from '../types';
 import { PivotCardBase, type PivotCardConfig } from './base';
+import { defineElement } from '../register';
 
 export interface BankCardConfig extends PivotCardConfig {
   /** 1–4, 'active' (the bank the dial is on) or 'timer' (whichever bank is the timer). */
@@ -303,6 +304,9 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
 
   /** The bank shown now; undefined when 'active' or 'timer' finds no bank. */
   get bankNumber(): number | undefined {
+    // A drag keeps the whole card on the bank it started on, even if the dial
+    // moves meanwhile: the bar under the finger, and where the value goes.
+    if (this._dragBank !== undefined) return this._dragBank;
     const choice = this._config?.bank ?? 1;
     if (choice !== 'active' && choice !== 'timer') return Number(choice);
     const device = this.device;
@@ -431,7 +435,7 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
       @pivot-slide-end=${(e: CustomEvent<{ value: number }>) => this._slideEnd(bank, timer, e.detail.value)}
       @pivot-slide-cancel=${() => {
         this._send.cancel();
-        this._dragBank = undefined;
+        this._endDrag();
       }}
       @click=${(e: Event) => e.stopPropagation()}
     ></pivot-slider>`;
@@ -561,12 +565,19 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
     this._send.cancel();
     if (bank.isTimer) this._writeTimer(bank, timer, value);
     else this._writeValue(value);
+    this._endDrag();
+  }
+
+  /** Let an 'active' or 'timer' card catch up with the dial after a drag. */
+  private _endDrag(): void {
+    if (this._dragBank === undefined) return;
     this._dragBank = undefined;
+    this.requestUpdate();
   }
 
   private _writeValue(value: number, bankNumber?: number): void {
     const device = this.device;
-    const n = bankNumber ?? this._dragBank ?? this.bankNumber;
+    const n = bankNumber ?? this.bankNumber;
     if (!this.hass || !device || n === undefined) return;
     const bank = readBank(this.hass, device.suffix, n);
     if (bank.active) {
@@ -698,4 +709,4 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
   }
 }
 
-if (!customElements.get('pivot-bank-card')) customElements.define('pivot-bank-card', PivotBankCard);
+defineElement('pivot-bank-card', PivotBankCard);

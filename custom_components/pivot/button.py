@@ -34,8 +34,15 @@ async def do_bank_toggle(hass: HomeAssistant, suffix: str, bank_entity: str) -> 
             await hass.services.async_call("media_player", "media_play_pause", {"entity_id": bank_entity})
         elif domain == "cover":
             await hass.services.async_call("cover", "toggle", {"entity_id": bank_entity})
-        else:
+        elif domain == "group" or hass.services.has_service(domain, "toggle"):
+            # Old-style groups have no group.toggle; homeassistant.toggle
+            # expands them to their members.
             await hass.services.async_call("homeassistant", "toggle", {"entity_id": bank_entity})
+        else:
+            # A number, input_number, sensor and the like: nothing to toggle,
+            # and homeassistant.toggle would log a warning on every press.
+            # Automations can still act on the pivot_button_press event.
+            _LOGGER.debug("Pivot: %s cannot be toggled; single press ignored", bank_entity)
     except Exception:
         _LOGGER.exception("Pivot: error toggling %s for %s", bank_entity, suffix)
 

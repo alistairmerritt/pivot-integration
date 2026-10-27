@@ -11,6 +11,7 @@ import { tokens } from '../styles';
 import type { HomeAssistant } from '../types';
 import { PivotCardBase, type PivotCardConfig } from './base';
 import type { BankCardConfig } from './bank-card';
+import { defineElement } from '../register';
 import type { SettingsCardConfig } from './settings-card';
 import type { StatusCardConfig } from './status-card';
 import './bank-card';
@@ -196,7 +197,10 @@ export class PivotDeviceCard extends PivotCardBase<DeviceCardConfig> {
 
   getCardSize(): number {
     const banks = this._config?.banks;
-    const count = banks === 'active' || banks === 'timer' ? 1 : Array.isArray(banks) ? banks.length : NUM_BANKS;
+    // The banks actually drawn when the device is known; otherwise the most there could be.
+    const count = this.hass && this.device
+      ? this._bankConfigs().length
+      : banks === 'active' || banks === 'timer' ? 1 : Array.isArray(banks) ? new Set(banks).size : NUM_BANKS;
     const status = this._showStatus ? 2 : 0;
     if (!this._showSettings) return status + count * 4;
     const beside = this._config?.settings_position !== 'below';
@@ -250,4 +254,4 @@ export class PivotDeviceCard extends PivotCardBase<DeviceCardConfig> {
   }
 }
 
-if (!customElements.get('pivot-device-card')) customElements.define('pivot-device-card', PivotDeviceCard);
+defineElement('pivot-device-card', PivotDeviceCard);

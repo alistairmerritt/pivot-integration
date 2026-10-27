@@ -135,6 +135,13 @@ def _suffix_in_use(hass: HomeAssistant, suffix: str) -> bool:
     )
 
 
+# Domains offered by the bank entity pickers.
+BANK_ENTITY_DOMAINS = [
+    "light", "switch", "input_boolean", "fan", "climate", "media_player",
+    "cover", "scene", "script", "input_number", "number",
+]
+
+
 def _bank_entity_schema(current: dict[str, str] | None = None) -> vol.Schema:
     """Build a schema with a timer-bank single-select and one EntitySelector per bank.
 
@@ -164,15 +171,20 @@ def _bank_entity_schema(current: dict[str, str] | None = None) -> vol.Schema:
         )
     )
 
-    entity_sel = selector.EntitySelector(
-        selector.EntitySelectorConfig(
-            domain=["light", "switch", "input_boolean", "fan", "climate", "media_player", "cover", "scene", "script", "input_number", "number"],
-            multiple=False,
-        )
-    )
     for i in range(NUM_BANKS):
         key = f"bank_{i}_entity"
         existing = current.get(key) or None
+        domains = BANK_ENTITY_DOMAINS
+        # A bank can hold any entity (EDIT ENTITY takes one from any domain).
+        # The picker rejects a pre-filled entity outside its domain list, which
+        # would make the whole form impossible to submit, so allow its domain.
+        if existing and existing != "timer" and "." in existing:
+            existing_domain = existing.split(".")[0]
+            if existing_domain not in domains:
+                domains = [*domains, existing_domain]
+        entity_sel = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain=domains, multiple=False)
+        )
         # Don't pre-fill 'timer' — that bank is represented by the timer_banks selector
         if existing and existing != "timer":
             fields[vol.Optional(key, default=existing)] = entity_sel

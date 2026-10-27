@@ -19,6 +19,7 @@ reconfigured or reloaded with a working link, or when the entry is removed.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -37,6 +38,12 @@ from .entity_mappings import SyncContextTracker, bank_is_passive
 UNAVAILABLE_GRACE = timedelta(seconds=60)
 
 HELP_URL = "https://alistairmerritt.github.io/pivot/help/#the-button-press-does-nothing"
+
+# Automations and scripts announce each run with these events, carrying the
+# context every action of that run uses.
+RUN_EVENTS = ("automation_triggered", "script_started")
+# Enough recent runs to cover any that could still be writing.
+MAX_RUN_CONTEXTS = 256
 
 
 def link_issue_id(entry: ConfigEntry) -> str:
@@ -99,6 +106,18 @@ def setup_link_check(
             return False
         return dt_util.utcnow() - state.last_changed > UNAVAILABLE_GRACE
 
+    # An automation with a time trigger runs with a bare context, exactly like
+    # the firmware's writes: the Timer Control blueprint updates the timer
+    # gauge every 30 seconds that way, even while the device is offline.
+    # Remember every run's context so none of its writes count as the device.
+    run_contexts: OrderedDict[str, None] = OrderedDict()
+
+    @callback
+    def _on_run_started(event: Event) -> None:
+        run_contexts[event.context.id] = None
+        while len(run_contexts) > MAX_RUN_CONTEXTS:
+            run_contexts.popitem(last=False)
+
     @callback
     def _on_button_changed(event: Event) -> None:
         new_state = event.data.get("new_state")
@@ -128,7 +147,7 @@ def setup_link_check(
         # tracked context.
         if context.user_id is not None or context.parent_id is not None:
             return
-        if sync_contexts.is_sync_context(context):
+        if sync_contexts.is_sync_context(context) or context.id in run_contexts:
             return
         bank = bank_value_ids.get(event.data.get("entity_id", ""))
         if bank is not None:
@@ -142,6 +161,7 @@ def setup_link_check(
             _raise()
 
     return [
+        *(hass.bus.async_listen(event_type, _on_run_started) for event_type in RUN_EVENTS),
         async_track_state_change_event(hass, [button_entity_id], _on_button_changed),
         async_track_state_change_event(
             hass, [active_bank_id, *bank_value_ids], _on_pivot_number_changed

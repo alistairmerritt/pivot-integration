@@ -4,10 +4,11 @@ import { moreInfo } from '../actions';
 import { deviceIds } from '../const';
 import { listPivotDevices } from '../discovery';
 import { ICONS, icon } from '../icons';
-import { bankName, legibleOnLight, num, readBank } from '../logic';
+import { activeBankNumber, bankName, legibleOnLight, readBank } from '../logic';
 import { tokens } from '../styles';
 import type { HomeAssistant } from '../types';
 import { PivotCardBase, type PivotCardConfig } from './base';
+import { defineElement } from '../register';
 
 export interface StatusCardConfig extends PivotCardConfig {
   name?: string;
@@ -92,8 +93,8 @@ export class PivotStatusCard extends PivotCardBase<StatusCardConfig> {
     const device = this.device;
     if (!device || !this.hass) return [];
     const ids = deviceIds(device.suffix);
-    const n = Math.round(num(this.hass.states[ids.activeBank]?.state, NaN));
-    const bank = n >= 1 && n <= 4 ? ids.bank(n) : undefined;
+    const n = activeBankNumber(this.hass, device.suffix);
+    const bank = n !== undefined ? ids.bank(n) : undefined;
     const bound = bank ? this.hass.states[bank.entity]?.state : undefined;
     return [ids.activeBank, ids.toggle('control_mode'), bank?.entity, bank?.color, bound && bound.includes('.') ? bound : undefined];
   }
@@ -104,11 +105,11 @@ export class PivotStatusCard extends PivotCardBase<StatusCardConfig> {
     if (!device) return this.renderProblem();
     const ids = deviceIds(device.suffix);
     const controlOn = this.hass.states[ids.toggle('control_mode')]?.state === 'on';
-    const n = Math.round(num(this.hass.states[ids.activeBank]?.state, NaN));
+    const n = activeBankNumber(this.hass, device.suffix);
     let text = 'Control mode off';
     let color = 'var(--pv-muted)';
     if (controlOn) {
-      if (n >= 1 && n <= 4) {
+      if (n !== undefined) {
         const bank = readBank(this.hass, device.suffix, n);
         text = `Bank ${n} - ${bankName(bank)}`;
         color = this.hasAttribute('light') ? legibleOnLight(bank.color) : bank.color;
@@ -136,4 +137,4 @@ export class PivotStatusCard extends PivotCardBase<StatusCardConfig> {
   }
 }
 
-if (!customElements.get('pivot-status-card')) customElements.define('pivot-status-card', PivotStatusCard);
+defineElement('pivot-status-card', PivotStatusCard);

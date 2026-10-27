@@ -69,6 +69,20 @@ describe('bank card: which bank', () => {
     expect(hass.calls.some((c) => c.data.entity_id === `number.${S}_bank_3_value`)).toBe(false);
   });
 
+  it('during a drag the card stays on its bank, then catches up with the dial', async () => {
+    const { el, root, hass } = await mount('pivot-bank-card', { bank: 'active' });
+    const slider = () => root.querySelector('pivot-slider')!;
+    slider().dispatchEvent(new CustomEvent('pivot-slide-start', { bubbles: true, composed: true }));
+    await rehass(el, Object.assign(makeHass({ [`number.${S}_active_bank`]: { state: '4.0' } }), { calls: hass.calls, callService: hass.callService }));
+    expect(text(root, '.head .label')).toBe('Bank 1');
+    expect(root.querySelector('.strip')).toBeNull();
+    slider().dispatchEvent(new CustomEvent('pivot-slide-end', { detail: { value: 70 }, bubbles: true, composed: true }));
+    await el.updateComplete;
+    // The light drag never became a timer duration, and nothing went to bank 4.
+    expect(hass.calls.filter((c) => /timer_duration|bank_4/.test(String(c.data.entity_id)))).toEqual([]);
+    expect(text(root, '.head .label')).toBe('Bank 4');
+  });
+
   it('rejects anything else', () => {
     expect(rejects('pivot-bank-card', { bank: 'first' })).toThrow(/bank must be 1, 2, 3, 4, active or timer/);
     expect(rejects('pivot-bank-card', { bank: 0 })).toThrow(/bank must/);
@@ -186,6 +200,13 @@ describe('device card: banks', () => {
     expect(bankCards(active.root).map((b) => b._config.bank)).toEqual(['active']);
     const timer = await mount('pivot-device-card', { banks: 'timer' });
     expect(bankCards(timer.root).map((b) => b._config.bank)).toEqual(['timer']);
+  });
+
+  it('reports its real height to masonry layouts', async () => {
+    const { el } = await mount('pivot-device-card', { hide_unassigned: true, show_settings: false }, makeHass({ [`text.${S}_bank_2_entity`]: { state: '' } }));
+    expect((el as unknown as { getCardSize(): number }).getCardSize()).toBe(2 + 3 * 4);
+    const dup = await mount('pivot-device-card', { banks: [1, 1, 2], show_settings: false });
+    expect((dup.el as unknown as { getCardSize(): number }).getCardSize()).toBe(2 + 2 * 4);
   });
 
   it('an empty list says so', async () => {

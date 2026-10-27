@@ -57,7 +57,7 @@ describe('editor: writes only what differs from the defaults', () => {
       type: 'custom:pivot-device-card',
       device: S,
       show_title: false,
-      name: 'Bedroom',
+      name: ' Bedroom ',
       show_active_bank: false,
       banks: [1, 3],
       hide_unassigned: true,
@@ -113,6 +113,23 @@ describe('editor: writes only what differs from the defaults', () => {
       grid_options: { columns: 6 },
       visibility: [],
     });
+  });
+
+  it('a title is stored as typed, so a space between words survives', () => {
+    expect(edit('device', {}, { name: 'Desk ' }).name).toBe('Desk ');
+    expect(edit('device', { name: 'Desk' }, { name: '   ' }).name).toBeUndefined();
+  });
+
+  it('a hand-written row order survives the editor', () => {
+    const custom = { rows: ['volume', 'control_mode'] };
+    expect(edit('settings', custom, { background: true }).rows).toEqual(['volume', 'control_mode']);
+    expect(edit('settings', custom, { rows: ['volume', 'control_mode', 'announcements'] }).rows).toEqual(['volume', 'control_mode', 'announcements']);
+    // The usual order stays the usual order.
+    expect(edit('settings', { rows: ['control_mode', 'announcements'] }, { rows: ['announcements', 'control_mode', 'volume'] }).rows).toEqual(['control_mode', 'volume', 'announcements']);
+  });
+
+  it('a seventh preset is the one left out, not the largest', () => {
+    expect(parsePresets(['10', '15', '20', '30', '45', '60', '5'])).toEqual([10, 15, 20, 30, 45, 60]);
   });
 
   it('presets: whole minutes from 1 to 60, each once, sorted, at most six', () => {

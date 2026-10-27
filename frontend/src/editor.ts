@@ -6,8 +6,11 @@ import { mdiCogOutline, mdiKnob, mdiTimerOutline } from '@mdi/js';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { fire } from './actions';
 import { ALL_ROWS, DEFAULT_TIMER_MINUTES, MAX_TIMER_PRESETS, NUM_BANKS, TOGGLE_TEXT, type SettingsRow } from './const';
+
+export { parseTimerPresets as parsePresets };
 import { listPivotDevices } from './discovery';
-import { bankName, readBank } from './logic';
+import { bankName, parseTimerPresets, readBank } from './logic';
+import { defineElement } from './register';
 import type { HomeAssistant, LovelaceCardConfig } from './types';
 
 export type EditorKind = 'device' | 'bank' | 'status' | 'settings';
@@ -87,12 +90,6 @@ const MANAGED: Record<EditorKind, string[]> = {
 
 const sameList = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
-/** Whole minutes from 1 to 60, each once, in order: anything else in the list is dropped. */
-export function parsePresets(values: unknown): number[] {
-  const list = (Array.isArray(values) ? values : []).map((v) => Number(String(v).trim()));
-  return [...new Set(list.filter((m) => Number.isInteger(m) && m >= 1 && m <= 60))].sort((a, b) => a - b).slice(0, MAX_TIMER_PRESETS);
-}
-
 /** The config as flat form fields, with every default filled in. */
 export function toForm(kind: EditorKind, config: LovelaceCardConfig): FormData {
   const c = config as Record<string, unknown>;
@@ -139,18 +136,27 @@ export function fromForm(kind: EditorKind, data: FormData, previous: LovelaceCar
   const on = (key: string) => {
     if (data[key] === true) next[key] = true;
   };
+  // Stored as typed: trimming here would eat the space after a word while
+  // it is being typed. The cards trim when they draw it.
   const text = (key: string) => {
-    const value = typeof data[key] === 'string' ? (data[key] as string).trim() : '';
-    if (value) next[key] = value;
+    const value = typeof data[key] === 'string' ? (data[key] as string) : '';
+    if (value.trim()) next[key] = value;
   };
+  // A hand-written row order survives the editor: rows keep their place and
+  // newly ticked ones go on the end. A list in the usual order stays in it.
   const rows = (key: string, value: unknown) => {
-    const list = ALL_ROWS.filter((r) => Array.isArray(value) && value.includes(r));
+    const chosen = Array.isArray(value) ? (value as SettingsRow[]) : [];
+    const before = Array.isArray(previous?.[key]) ? (previous![key] as SettingsRow[]) : ALL_ROWS;
+    const custom = !sameList(before, ALL_ROWS.filter((r) => before.includes(r)));
+    const list = custom
+      ? [...before.filter((r) => chosen.includes(r)), ...ALL_ROWS.filter((r) => chosen.includes(r) && !before.includes(r))]
+      : ALL_ROWS.filter((r) => chosen.includes(r));
     if (!sameList(list, ALL_ROWS)) next[key] = list;
   };
   const bankOptions = () => {
     off('show_edit');
     off('show_bank_options');
-    const presets = parsePresets(data.timer_presets);
+    const presets = parseTimerPresets(data.timer_presets);
     if (!sameList(presets, DEFAULT_TIMER_MINUTES)) next.timer_presets = presets;
     off('show_silent_timer');
     text('timer_silent_entity');
@@ -497,4 +503,4 @@ export class PivotCardEditor extends LitElement {
   }
 }
 
-if (!customElements.get('pivot-card-editor')) customElements.define('pivot-card-editor', PivotCardEditor);
+defineElement('pivot-card-editor', PivotCardEditor);

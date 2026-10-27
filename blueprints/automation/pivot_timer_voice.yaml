@@ -434,11 +434,9 @@ actions:
               entity_id: "{{ timer_end_entity }}"
             data:
               value: ""
-          - action: select.select_option
-            target:
-              entity_id: "{{ timer_state_entity }}"
-            data:
-              option: idle
+          # Empty the gauge BEFORE going idle. On an idle timer bank Pivot reads a
+          # bank value as a new duration (the knob path), so a 0 written after
+          # the switch to idle would reset the timer to 1 minute.
           - if:
               - condition: template
                 value_template: "{{ bank | int(0) > 0 }}"
@@ -448,6 +446,15 @@ actions:
                   entity_id: "{{ bank_value_entity }}"
                 data:
                   value: 0
+          - action: select.select_option
+            target:
+              entity_id: "{{ timer_state_entity }}"
+            data:
+              option: idle
+          - if:
+              - condition: template
+                value_template: "{{ bank | int(0) > 0 }}"
+            then:
               - action: switch.turn_on
                 target:
                   entity_id: "{{ dim_switch_entity }}"

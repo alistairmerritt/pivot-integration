@@ -128,8 +128,11 @@ async def _cancel_fallback(
         await hass.services.async_call(domain, service, data, blocking=True, context=context)
 
     await _call("text", "set_value", {"entity_id": f"text.{suffix}_timer_end", "value": ""})
-    await _call("select", "select_option", {"entity_id": state_eid, "option": "idle"})
+    # Empty the gauge BEFORE going idle. On an idle timer bank Pivot reads a
+    # bank value as a new duration (the knob path), so a 0 written after the
+    # switch to idle would reset the timer to 1 minute.
     await _call("number", "set_value", {"entity_id": f"number.{suffix}_bank_{bank}_value", "value": 0})
+    await _call("select", "select_option", {"entity_id": state_eid, "option": "idle"})
     await _call("switch", "turn_on", {"entity_id": f"switch.{suffix}_dim_when_idle"})
     restore_eid = f"text.{suffix}_timer_restore_show_value"
     restore = hass.states.get(restore_eid)

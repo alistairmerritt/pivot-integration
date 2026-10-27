@@ -94,9 +94,7 @@ export function activeBankNumber(hass: HomeAssistant, suffix: string): number | 
 
 /** The first bank assigned to the timer. */
 export function timerBankNumber(hass: HomeAssistant, suffix: string): number | undefined {
-  for (let n = 1; n <= NUM_BANKS; n++) {
-    if ((hass.states[deviceIds(suffix).bank(n).entity]?.state ?? '').trim().toLowerCase() === 'timer') return n;
-  }
+  for (let n = 1; n <= NUM_BANKS; n++) if (readBank(hass, suffix, n).isTimer) return n;
   return undefined;
 }
 
@@ -202,15 +200,28 @@ export function timerPresets(minutes?: readonly number[]): TimerPreset[] {
   );
 }
 
+/** A preset is a whole number of minutes the timer can hold. */
+const isPresetMinute = (m: unknown): m is number => Number.isInteger(m) && (m as number) >= 1 && (m as number) <= 60;
+
 /** Why a timer_presets option is unusable, or undefined when it is fine. */
 export function timerPresetsError(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   if (!Array.isArray(value)) return 'timer_presets must be a list of minutes, like [15, 30, 45, 60]';
   if (value.length > MAX_TIMER_PRESETS) return `timer_presets can have at most ${MAX_TIMER_PRESETS} entries`;
-  const bad = value.filter((m) => !Number.isInteger(m) || m < 1 || m > 60);
+  const bad = value.filter((m) => !isPresetMinute(m));
   if (bad.length) return `timer_presets must be whole minutes from 1 to 60 (not ${bad.join(', ')})`;
   if (new Set(value).size !== value.length) return 'timer_presets has the same minutes twice';
   return undefined;
+}
+
+/**
+ * Presets as typed into the editor, made valid: anything that isn't a whole
+ * minute from 1 to 60 is dropped, repeats are dropped, the first six are
+ * kept (so a seventh never pushes out one already there), then sorted.
+ */
+export function parseTimerPresets(values: unknown): number[] {
+  const list = (Array.isArray(values) ? values : []).map((v) => Number(String(v).trim())).filter(isPresetMinute);
+  return [...new Set(list)].slice(0, MAX_TIMER_PRESETS).sort((a, b) => a - b);
 }
 
 export function selectedPreset(timer: TimerView, bankValue: number, presets: readonly TimerPreset[] = TIMER_PRESETS): number | undefined {

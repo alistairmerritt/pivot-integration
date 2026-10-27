@@ -77,6 +77,39 @@ def setup_bank_control_listener(
     _apply_debounce_cancels: dict[int, CALLBACK_TYPE] = {}
 
     @callback
+    def _sync_timer_gauge(bank_idx: int) -> None:
+        """Show the idle timer's duration on a timer bank's gauge.
+
+        Written with a tracked context, so the knob listener does not read it
+        back as a new duration. Nothing to show while the timer is running:
+        the Timer Control blueprint drives the gauge then.
+        """
+        timer_st = hass.states.get(f"select.{suffix}_timer_state")
+        if timer_st is None or timer_st.state != "idle":
+            return
+        dur_st = hass.states.get(f"number.{suffix}_timer_duration")
+        if dur_st is None:
+            return
+        try:
+            min_val = float(dur_st.attributes.get("min", 1))
+            max_val = float(dur_st.attributes.get("max", 60))
+            raw = float(dur_st.state)
+            synced = round((raw - min_val) / (max_val - min_val) * 100) if max_val != min_val else 0
+            synced = max(0, min(100, synced))
+        except (ValueError, TypeError):
+            return
+        entry.async_create_background_task(
+            hass,
+            hass.services.async_call(
+                "number", "set_value",
+                {"entity_id": f"number.{suffix}_bank_{bank_idx + 1}_value", "value": synced},
+                context=sync_contexts.new_context(),
+                blocking=False,
+            ),
+            name="pivot_sync_gauge",
+        )
+
+    @callback
     def _on_bank_value_changed(event) -> None:
         """Apply bank value to the assigned entity when knob is turned."""
         changed_entity_id = event.data.get("entity_id", "")
@@ -306,33 +339,7 @@ def setup_bank_control_listener(
 
         # Timer bank: sync current duration to gauge when idle
         if bank_entity == "timer":
-            timer_state_id = f"select.{suffix}_timer_state"
-            timer_st = hass.states.get(timer_state_id)
-            if timer_st is None or timer_st.state != "idle":
-                return
-            duration_eid = f"number.{suffix}_timer_duration"
-            dur_st = hass.states.get(duration_eid)
-            if dur_st is None:
-                return
-            try:
-                min_val = float(dur_st.attributes.get("min", 1))
-                max_val = float(dur_st.attributes.get("max", 60))
-                raw = float(dur_st.state)
-                synced = round((raw - min_val) / (max_val - min_val) * 100) if max_val != min_val else 0
-                synced = max(0, min(100, synced))
-            except (ValueError, TypeError):
-                return
-            value_entity_id = f"number.{suffix}_bank_{bank_idx + 1}_value"
-            entry.async_create_background_task(
-                hass,
-                hass.services.async_call(
-                    "number", "set_value",
-                    {"entity_id": value_entity_id, "value": synced},
-                    context=sync_contexts.new_context(),
-                    blocking=False,
-                ),
-                name="pivot_sync_gauge",
-            )
+            _sync_timer_gauge(bank_idx)
             return
 
         if "." not in bank_entity:
@@ -445,6 +452,9 @@ def setup_bank_control_listener(
         # knob listener and only update the device's cache, and the sync write
         # carries a tracked context so it is never read as a knob turn.
         bank_entity = new_state.state
+        if bank_entity == "timer":
+            _sync_timer_gauge(bank_idx)
+            return
         if "." not in bank_entity:
             return
         value_entity_id = f"number.{suffix}_bank_{bank_idx + 1}_value"

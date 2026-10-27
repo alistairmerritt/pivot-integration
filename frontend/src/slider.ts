@@ -10,6 +10,7 @@
 
 import { LitElement, css, html, nothing, type PropertyValues } from 'lit';
 import { fire } from './actions';
+import { defineElement } from './register';
 
 const HOLD_MS = 4000;
 const TOUCH_SLOP = 4;
@@ -229,4 +230,4 @@ export class PivotSlider extends LitElement {
   };
 }
 
-if (!customElements.get('pivot-slider')) customElements.define('pivot-slider', PivotSlider);
+defineElement('pivot-slider', PivotSlider);
