@@ -1,0 +1,10 @@
+{
+  "services": {
+    "timer_toggle": {
+      "service": "mdi:timer-play-outline"
+    },
+    "timer_cancel": {
+      "service": "mdi:timer-cancel-outline"
+    }
+  }
+}

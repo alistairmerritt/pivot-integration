@@ -22,7 +22,8 @@ For installation, setup, configuration, examples and troubleshooting, use the fu
 - Home Assistant custom integration files
 - Pivot bank configuration and entity provisioning
 - Entities and services used by Pivot (number, switch, text, binary sensor, light)
-- Timer support
+- Timer support, including the `pivot.timer_toggle` and `pivot.timer_cancel` actions
+- Dashboard cards (`custom:pivot-device-card` and friends), served by the integration. The source is in `frontend/`; `npm run build` there regenerates `custom_components/pivot/frontend/pivot-cards.js`
 - Blueprint files for announcements and timer automations
 - HACS installation support
 - Integration-side logic for controlling Pivot behaviour

@@ -338,11 +338,14 @@ action:
       # ── Long press: cancel and reset ────────────────────────────────────────
       # Only fires when a bank is assigned and it is the currently active bank —
       # preserving long press for custom actions on other banks.
+      # A dashboard long press arrives as an event trigger, which has no
+      # to_state at all, so test the trigger platform before touching it.
       - conditions:
           - condition: template
             value_template: >
               {{ trigger.id == 'long_press'
-                 and (trigger.to_state is none
+                 and (trigger.platform == 'event'
+                      or trigger.to_state is none
                       or trigger.to_state.attributes.get('event_type') == 'long_press') }}
           - condition: template
             value_template: >

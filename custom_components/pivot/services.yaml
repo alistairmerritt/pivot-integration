@@ -1,0 +1,29 @@
+timer_toggle:
+  fields:
+    device:
+      required: true
+      example: ha_voice_kitchen
+      selector:
+        text:
+    bank:
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 4
+          mode: box
+
+timer_cancel:
+  fields:
+    device:
+      required: true
+      example: ha_voice_kitchen
+      selector:
+        text:
+    bank:
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 4
+          mode: box

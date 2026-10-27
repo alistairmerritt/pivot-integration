@@ -6,11 +6,14 @@ from dataclasses import dataclass, field
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.typing import ConfigType
 
 from .bank_control import setup_bank_control_listener
 from .blueprints import install_blueprints
 from .button import setup_button_event_listener
+from .cards import async_register_frontend
 from .const import (
     CONF_ANNOUNCEMENTS,
     CONF_DEVICE_SUFFIX,
@@ -35,10 +38,13 @@ from .entity_mappings import (
 )
 from .link_check import link_issue_id, setup_link_check
 from .mirror import setup_mirror_listeners
+from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["number", "switch", "text", "binary_sensor", "light", "select"]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 @dataclass
@@ -54,6 +60,20 @@ class PivotRuntimeData:
 
 
 PivotConfigEntry = ConfigEntry[PivotRuntimeData]
+
+
+# ---------------------------------------------------------------------------
+# Integration setup (once per Home Assistant run)
+# ---------------------------------------------------------------------------
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the timer services and serve the dashboard cards."""
+    async_setup_services(hass)
+    try:
+        await async_register_frontend(hass)
+    except Exception:  # noqa: BLE001 — the cards must never block Pivot itself
+        _LOGGER.exception("Pivot: could not register the dashboard cards")
+    return True
 
 
 # ---------------------------------------------------------------------------

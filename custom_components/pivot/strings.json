@@ -107,5 +107,43 @@
       "title": "Pivot can't hear the button on {name}",
       "description": "Button presses on **{name}** aren't reaching Pivot: the Pivot entry is linked to a copy of the device whose button is missing or unavailable, even though the device itself may be working normally (the knob can still work). This usually happens when the VPE is added to Home Assistant again — for example after re-adopting it in ESPHome.\n\nTo fix it, go to **Settings → Devices & services → Pivot**, open the menu (⋮) on **{name}**, choose **Reconfigure**, and pick the device whose button is available. Your bank assignments and settings are kept.\n\nThis message clears itself once the button can be heard again."
     }
+  },
+  "services": {
+    "timer_toggle": {
+      "name": "Timer toggle",
+      "description": "Start, pause, resume or dismiss a Pivot timer, the same as a single press on the timer bank. Makes the timer bank active first.",
+      "fields": {
+        "device": {
+          "name": "Device",
+          "description": "The Pivot device suffix, for example ha_voice_kitchen."
+        },
+        "bank": {
+          "name": "Bank",
+          "description": "The bank assigned to the timer (1–4). Leave empty to use the first bank set to timer."
+        }
+      }
+    },
+    "timer_cancel": {
+      "name": "Timer cancel",
+      "description": "Cancel a running or paused Pivot timer, the same as a long press on the timer bank.",
+      "fields": {
+        "device": {
+          "name": "Device",
+          "description": "The Pivot device suffix, for example ha_voice_kitchen."
+        },
+        "bank": {
+          "name": "Bank",
+          "description": "The bank assigned to the timer (1–4). Leave empty to use the first bank set to timer."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "unknown_device": {
+      "message": "No loaded Pivot device has the suffix {device}."
+    },
+    "no_timer_bank": {
+      "message": "No bank on {device} is assigned to the timer."
+    }
   }
 }
