@@ -29,13 +29,21 @@ export const TOGGLE_TEXT: Record<ToggleKey, { title: string; description: string
   dim_when_idle: { title: 'Dim Gauge LEDs While Idle', description: 'Reduce LED brightness when not interacting with dial' },
 };
 
-/** Timer presets: the bank value the knob path needs (24 -> 15 min, etc.) and the minutes it means. */
+/** The default timer presets: the bank value the knob path needs (24 -> 15 min, etc.) and the minutes it means. */
 export const TIMER_PRESETS = [
   { minutes: 15, value: 24, label: '15m' },
   { minutes: 30, value: 50, label: '30m' },
   { minutes: 45, value: 75, label: '45m' },
   { minutes: 60, value: 100, label: '60m' },
 ];
+export const DEFAULT_TIMER_MINUTES = TIMER_PRESETS.map((p) => p.minutes);
+/** More than six preset buttons no longer fit beside play and cancel on a phone. */
+export const MAX_TIMER_PRESETS = 6;
+
+/** Which bank a bank card shows: a fixed bank, the one the dial is on, or whichever bank is the timer. */
+export type BankChoice = number | 'active' | 'timer';
+/** Which banks the device card shows: all four, a list, or a single followed bank. */
+export type BanksOption = 'all' | 'active' | 'timer' | number[];
 
 export interface BankIds {
   entity: string;

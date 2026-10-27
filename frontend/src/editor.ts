@@ -1,12 +1,31 @@
 // <pivot-card-editor>: the visual editor for all four cards. Uses Home
-// Assistant's ha-form; if that cannot be loaded, falls back to plain controls.
+// Assistant's ha-form; if that cannot be loaded, draws the same fields with
+// plain controls. The form works on a flat copy of the options (toForm) and
+// writes back a tidy config that leaves out every default (fromForm).
+import { mdiCogOutline, mdiKnob, mdiTimerOutline } from '@mdi/js';
 import { LitElement, css, html, nothing, type TemplateResult } from 'lit';
 import { fire } from './actions';
-import { ALL_ROWS, TOGGLE_TEXT, type SettingsRow } from './const';
+import { ALL_ROWS, DEFAULT_TIMER_MINUTES, MAX_TIMER_PRESETS, NUM_BANKS, TOGGLE_TEXT, type SettingsRow } from './const';
 import { listPivotDevices } from './discovery';
+import { bankName, readBank } from './logic';
 import type { HomeAssistant, LovelaceCardConfig } from './types';
 
 export type EditorKind = 'device' | 'bank' | 'status' | 'settings';
+type FormData = Record<string, unknown>;
+
+/** The slice of Home Assistant's ha-form schema the editor uses. */
+export interface FormSchema {
+  name: string;
+  type?: 'expandable';
+  title?: string;
+  iconPath?: string;
+  expanded?: boolean;
+  flatten?: boolean;
+  required?: boolean;
+  disabled?: boolean;
+  selector?: Record<string, Record<string, unknown>>;
+  schema?: FormSchema[];
+}
 
 const ROW_LABELS: Record<SettingsRow, string> = {
   control_mode: TOGGLE_TEXT.control_mode.title,
@@ -17,17 +36,182 @@ const ROW_LABELS: Record<SettingsRow, string> = {
   dim_when_idle: TOGGLE_TEXT.dim_when_idle.title,
 };
 
+const HEADINGS_LABEL = 'Show "Device" and "Behaviour" headings';
+const BACKGROUND_LABEL = 'Put settings on a card background';
 const LABELS: Record<string, string> = {
   device: 'Pivot device',
   bank: 'Bank',
   name: 'Title (optional)',
-  show_status: 'Show title and active bank',
-  show_settings: 'Show device and behaviour settings',
-  show_name: 'Show title',
-  rows: 'Rows',
-  headings: 'Show "Device" and "Behaviour" headings',
+  show_title: 'Show title',
+  show_active_bank: 'Show active bank',
+  banks_mode: 'Banks to show',
+  banks_chosen: 'Which banks',
+  hide_unassigned: 'Hide banks with nothing assigned',
+  bank_columns: 'Banks per row',
+  show_edit: 'Show EDIT ENTITY',
+  show_bank_options: 'Show Mirror Light Colour and Announce Value',
+  timer_presets: 'Timer presets (minutes)',
+  show_silent_timer: 'Show Silent Timer',
   timer_silent_entity: 'Timer silent switch (optional, found automatically)',
+  show_settings: 'Show device and behaviour settings',
+  settings_rows: 'Settings to show',
+  rows: 'Settings to show',
+  settings_headings: HEADINGS_LABEL,
+  headings: HEADINGS_LABEL,
+  settings_background: BACKGROUND_LABEL,
+  background: BACKGROUND_LABEL,
+  settings_position: 'Position',
 };
+
+const HELPERS: Record<string, string> = {
+  bank: 'The active bank follows the dial. The timer bank finds whichever bank is the timer.',
+  bank_columns: 'Two per row needs about 610 px for the banks. Narrower, they stack.',
+  timer_presets: `Up to ${MAX_TIMER_PRESETS}, each 1 to 60 minutes. Remove them all to keep just play and cancel.`,
+  show_settings: 'Turn off to put them somewhere else with the Pivot settings card.',
+};
+
+/** Suggestions in the presets picker; any whole minute from 1 to 60 can be typed. */
+const PRESET_SUGGESTIONS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 45, 50, 60];
+
+/** Options each kind of card owns: anything else in the config (grid_options, visibility, ...) is kept as it is. */
+const MANAGED: Record<EditorKind, string[]> = {
+  device: [
+    'device', 'name', 'show_title', 'show_active_bank', 'show_status', 'banks', 'hide_unassigned', 'bank_columns',
+    'show_edit', 'show_bank_options', 'timer_presets', 'show_silent_timer', 'timer_silent_entity',
+    'show_settings', 'settings_rows', 'settings_headings', 'settings_background', 'settings_position',
+  ],
+  bank: ['device', 'bank', 'show_edit', 'show_bank_options', 'timer_presets', 'show_silent_timer', 'timer_silent_entity'],
+  status: ['device', 'name', 'show_title', 'show_name', 'show_active_bank'],
+  settings: ['device', 'rows', 'headings', 'background'],
+};
+
+const sameList = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/** Whole minutes from 1 to 60, each once, in order: anything else in the list is dropped. */
+export function parsePresets(values: unknown): number[] {
+  const list = (Array.isArray(values) ? values : []).map((v) => Number(String(v).trim()));
+  return [...new Set(list.filter((m) => Number.isInteger(m) && m >= 1 && m <= 60))].sort((a, b) => a - b).slice(0, MAX_TIMER_PRESETS);
+}
+
+/** The config as flat form fields, with every default filled in. */
+export function toForm(kind: EditorKind, config: LovelaceCardConfig): FormData {
+  const c = config as Record<string, unknown>;
+  const bankOptions = {
+    show_edit: c.show_edit !== false,
+    show_bank_options: c.show_bank_options !== false,
+    timer_presets: (Array.isArray(c.timer_presets) ? c.timer_presets : DEFAULT_TIMER_MINUTES).map(String),
+    show_silent_timer: c.show_silent_timer !== false,
+    timer_silent_entity: c.timer_silent_entity ?? '',
+  };
+  const device = c.device ?? '';
+  if (kind === 'device') {
+    const statusOn = c.show_status !== false;
+    return {
+      device,
+      show_title: statusOn && c.show_title !== false,
+      name: c.name ?? '',
+      show_active_bank: statusOn && c.show_active_bank !== false,
+      banks_mode: Array.isArray(c.banks) ? 'choose' : (c.banks ?? 'all'),
+      banks_chosen: Array.isArray(c.banks) ? c.banks.map(String) : ['1', '2', '3', '4'],
+      hide_unassigned: c.hide_unassigned === true,
+      bank_columns: String(c.bank_columns ?? 1),
+      ...bankOptions,
+      show_settings: c.show_settings !== false,
+      settings_rows: Array.isArray(c.settings_rows) ? c.settings_rows : [...ALL_ROWS],
+      settings_headings: c.settings_headings !== false,
+      settings_background: c.settings_background === true,
+      settings_position: c.settings_position ?? 'beside',
+    };
+  }
+  if (kind === 'bank') return { device, bank: String(c.bank ?? 1), ...bankOptions };
+  if (kind === 'status') {
+    return { device, show_title: c.show_title !== false && c.show_name !== false, name: c.name ?? '', show_active_bank: c.show_active_bank !== false };
+  }
+  return { device, rows: Array.isArray(c.rows) ? c.rows : [...ALL_ROWS], headings: c.headings !== false, background: c.background === true };
+}
+
+/** The form fields back as a card config: defaults left out, unknown keys kept. */
+export function fromForm(kind: EditorKind, data: FormData, previous: LovelaceCardConfig | undefined): LovelaceCardConfig {
+  const next: LovelaceCardConfig = { type: previous?.type ?? `custom:pivot-${kind}-card`, device: data.device ?? '' };
+  const off = (key: string) => {
+    if (data[key] === false) next[key] = false;
+  };
+  const on = (key: string) => {
+    if (data[key] === true) next[key] = true;
+  };
+  const text = (key: string) => {
+    const value = typeof data[key] === 'string' ? (data[key] as string).trim() : '';
+    if (value) next[key] = value;
+  };
+  const rows = (key: string, value: unknown) => {
+    const list = ALL_ROWS.filter((r) => Array.isArray(value) && value.includes(r));
+    if (!sameList(list, ALL_ROWS)) next[key] = list;
+  };
+  const bankOptions = () => {
+    off('show_edit');
+    off('show_bank_options');
+    const presets = parsePresets(data.timer_presets);
+    if (!sameList(presets, DEFAULT_TIMER_MINUTES)) next.timer_presets = presets;
+    off('show_silent_timer');
+    text('timer_silent_entity');
+  };
+
+  if (kind === 'device') {
+    off('show_title');
+    text('name');
+    off('show_active_bank');
+    const mode = data.banks_mode;
+    if (mode === 'choose') {
+      const chosen = (Array.isArray(data.banks_chosen) ? data.banks_chosen : []).map(Number).filter((n) => n >= 1 && n <= NUM_BANKS);
+      next.banks = [...new Set(chosen)].sort((a, b) => a - b);
+    } else if (mode === 'active' || mode === 'timer') {
+      next.banks = mode;
+    }
+    if (mode !== 'active' && mode !== 'timer') {
+      on('hide_unassigned');
+      if (String(data.bank_columns) === '2') next.bank_columns = 2;
+    }
+    bankOptions();
+    off('show_settings');
+    rows('settings_rows', data.settings_rows);
+    off('settings_headings');
+    on('settings_background');
+    if (data.settings_position === 'below') next.settings_position = 'below';
+  } else if (kind === 'bank') {
+    const bank = String(data.bank ?? '1');
+    next.bank = /^[1-4]$/.test(bank) ? Number(bank) : bank;
+    bankOptions();
+  } else if (kind === 'status') {
+    off('show_title');
+    text('name');
+    off('show_active_bank');
+  } else {
+    rows('rows', data.rows);
+    off('headings');
+    on('background');
+  }
+  for (const [key, value] of Object.entries(previous ?? {})) {
+    if (!(key in next) && !MANAGED[kind].includes(key)) next[key] = value;
+  }
+  return next;
+}
+
+const boolean = (name: string, extra: Partial<FormSchema> = {}): FormSchema => ({ name, selector: { boolean: {} }, ...extra });
+const radios = (name: string, options: { value: string; label: string }[]): FormSchema => ({ name, selector: { select: { mode: 'list', options } } });
+const checklist = (name: string, options: { value: string; label: string }[]): FormSchema => ({
+  name,
+  selector: { select: { multiple: true, mode: 'list', options } },
+});
+const section = (title: string, iconPath: string, schema: FormSchema[], expanded = false): FormSchema => ({
+  name: '',
+  type: 'expandable',
+  flatten: true,
+  title,
+  iconPath,
+  expanded,
+  schema,
+});
+const rowOptions = () => ALL_ROWS.map((r) => ({ value: r, label: ROW_LABELS[r] }));
 
 let haFormReady: Promise<boolean> | undefined;
 
@@ -75,6 +259,18 @@ export class PivotCardEditor extends LitElement {
       display: grid;
       gap: 12px;
     }
+    fieldset {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 10px 12px 12px;
+      border: 1px solid var(--divider-color, #444);
+      border-radius: 12px;
+    }
+    legend {
+      padding: 0 4px;
+      font-weight: 500;
+    }
     label {
       display: grid;
       gap: 4px;
@@ -84,6 +280,11 @@ export class PivotCardEditor extends LitElement {
       display: flex;
       align-items: center;
       gap: 8px;
+    }
+    .group {
+      display: grid;
+      gap: 4px;
+      font-size: 14px;
     }
     select,
     input[type='text'] {
@@ -113,73 +314,99 @@ export class PivotCardEditor extends LitElement {
     return listPivotDevices(this.hass);
   }
 
-  private _schema() {
+  /** "Bank 1 · Desk Lamp", so banks can be picked by what they control. */
+  private _bankOptions(): { value: string; label: string }[] {
+    const suffix = this._config?.device as string | undefined;
+    const known = !!suffix && !!this.hass && this._devices.some((d) => d.suffix === suffix);
+    return [1, 2, 3, 4].map((n) => ({
+      value: String(n),
+      label: known ? `Bank ${n} · ${bankName(readBank(this.hass!, suffix!, n))}` : `Bank ${n}`,
+    }));
+  }
+
+  _schema(data: FormData): FormSchema[] {
     const devices = this._devices;
     const deviceOptions = devices.map((d) => ({ value: d.suffix, label: d.name === d.suffix ? d.suffix : `${d.name} (${d.suffix})` }));
-    const current = this._config?.device as string | undefined;
+    const current = data.device as string | undefined;
     if (current && !devices.some((d) => d.suffix === current)) deviceOptions.push({ value: current, label: `${current} (not found)` });
-    const schema: Record<string, unknown>[] = [
-      { name: 'device', required: true, selector: { select: { mode: 'dropdown', options: deviceOptions } } },
-    ];
-    if (this.kind === 'bank') {
-      schema.push({ name: 'bank', required: true, selector: { select: { mode: 'dropdown', options: ['1', '2', '3', '4'].map((v) => ({ value: v, label: `Bank ${v}` })) } } });
-    }
-    if (this.kind === 'device' || this.kind === 'status') schema.push({ name: 'name', selector: { text: {} } });
+    const schema: FormSchema[] = [{ name: 'device', required: true, selector: { select: { mode: 'dropdown', options: deviceOptions } } }];
+    const title = [boolean('show_title'), { name: 'name', disabled: data.show_title === false, selector: { text: {} } }, boolean('show_active_bank')];
+    const bankLooks = [boolean('show_edit'), boolean('show_bank_options')];
+    const timer = section('Timer', mdiTimerOutline, [
+      {
+        name: 'timer_presets',
+        selector: {
+          select: { multiple: true, custom_value: true, options: PRESET_SUGGESTIONS.map((m) => ({ value: String(m), label: `${m} min` })) },
+        },
+      },
+      boolean('show_silent_timer'),
+      { name: 'timer_silent_entity', selector: { entity: { domain: 'switch' } } },
+    ]);
+
     if (this.kind === 'device') {
-      schema.push({ name: 'show_status', selector: { boolean: {} } }, { name: 'show_settings', selector: { boolean: {} } });
-    }
-    if (this.kind === 'status') schema.push({ name: 'show_name', selector: { boolean: {} } });
-    if (this.kind === 'settings') {
-      schema.push(
-        { name: 'rows', selector: { select: { multiple: true, mode: 'list', options: ALL_ROWS.map((r) => ({ value: r, label: ROW_LABELS[r] })) } } },
-        { name: 'headings', selector: { boolean: {} } },
+      const listed = data.banks_mode === 'all' || data.banks_mode === 'choose';
+      const banks = section(
+        'Banks',
+        mdiKnob,
+        [
+          radios('banks_mode', [
+            { value: 'all', label: 'All four' },
+            { value: 'choose', label: 'Choose banks' },
+            { value: 'active', label: 'Only the active bank (follows the dial)' },
+            { value: 'timer', label: 'Only the timer bank' },
+          ]),
+          ...(data.banks_mode === 'choose' ? [checklist('banks_chosen', this._bankOptions())] : []),
+          ...(listed
+            ? [boolean('hide_unassigned'), radios('bank_columns', [{ value: '1', label: 'One' }, { value: '2', label: 'Two' }])]
+            : []),
+          ...bankLooks,
+        ],
+        true,
       );
-    }
-    if (this.kind === 'device' || this.kind === 'bank') {
-      schema.push({ name: 'timer_silent_entity', selector: { entity: { domain: 'switch' } } });
+      const settings = section('Settings', mdiCogOutline, [
+        boolean('show_settings'),
+        ...(data.show_settings !== false
+          ? [
+              checklist('settings_rows', rowOptions()),
+              boolean('settings_headings'),
+              boolean('settings_background'),
+              radios('settings_position', [
+                { value: 'beside', label: 'Beside the banks when there’s room' },
+                { value: 'below', label: 'Below the banks' },
+              ]),
+            ]
+          : []),
+      ]);
+      schema.push(...title, banks, timer, settings);
+    } else if (this.kind === 'bank') {
+      schema.push(
+        {
+          name: 'bank',
+          required: true,
+          selector: {
+            select: {
+              mode: 'dropdown',
+              options: [
+                ...this._bankOptions(),
+                { value: 'active', label: 'The active bank (follows the dial)' },
+                { value: 'timer', label: 'The timer bank' },
+              ],
+            },
+          },
+        },
+        ...bankLooks,
+        timer,
+      );
+    } else if (this.kind === 'status') {
+      schema.push(...title);
+    } else {
+      schema.push(checklist('rows', rowOptions()), boolean('headings'), boolean('background'));
     }
     return schema;
   }
 
-  /** Form data: the config with defaults made explicit for the toggles. */
-  private _data(): Record<string, unknown> {
-    const c = this._config ?? { type: '' };
-    return {
-      ...c,
-      bank: c.bank !== undefined ? String(c.bank) : '1',
-      show_status: c.show_status !== false,
-      show_settings: c.show_settings !== false,
-      show_name: c.show_name !== false,
-      headings: c.headings !== false,
-      rows: Array.isArray(c.rows) && c.rows.length ? c.rows : [...ALL_ROWS],
-    };
-  }
-
-  /** Writes back a tidy config: defaults and empty optional fields are left out. */
-  private _commit(data: Record<string, unknown>): void {
-    const next: LovelaceCardConfig = { type: this._config?.type ?? `custom:pivot-${this.kind}-card`, device: data.device ?? '' };
-    if (this.kind === 'bank') next.bank = Number(data.bank ?? 1);
-    if ((this.kind === 'device' || this.kind === 'status') && typeof data.name === 'string' && data.name.trim()) next.name = data.name;
-    if (this.kind === 'device') {
-      if (data.show_status === false) next.show_status = false;
-      if (data.show_settings === false) next.show_settings = false;
-    }
-    if (this.kind === 'status' && data.show_name === false) next.show_name = false;
-    if (this.kind === 'settings') {
-      const rows = (Array.isArray(data.rows) ? data.rows : []) as SettingsRow[];
-      const ordered = ALL_ROWS.filter((r) => rows.includes(r));
-      if (ordered.length && ordered.length !== ALL_ROWS.length) next.rows = ordered;
-      if (data.headings === false) next.headings = false;
-    }
-    if ((this.kind === 'device' || this.kind === 'bank') && typeof data.timer_silent_entity === 'string' && data.timer_silent_entity) {
-      next.timer_silent_entity = data.timer_silent_entity;
-    }
-    // Keep anything this editor does not manage (grid_options, visibility, ...).
-    for (const [key, value] of Object.entries(this._config ?? {})) {
-      if (!(key in next) && !['device', 'bank', 'name', 'show_status', 'show_settings', 'show_name', 'rows', 'headings', 'timer_silent_entity'].includes(key)) {
-        next[key] = value;
-      }
-    }
+  private _commit(data: FormData): void {
+    const next = fromForm(this.kind, data, this._config);
     this._config = next;
     fire(this, 'config-changed', { config: next });
   }
@@ -189,53 +416,84 @@ export class PivotCardEditor extends LitElement {
     const empty = !this._devices.length
       ? html`<p class="hint">No Pivot devices found. Add one under Settings → Devices &amp; services → Pivot.</p>`
       : nothing;
+    const data = toForm(this.kind, this._config);
+    const schema = this._schema(data);
     if (this._haForm) {
       return html`${empty}<ha-form
           .hass=${this.hass}
-          .data=${this._data()}
-          .schema=${this._schema()}
-          .computeLabel=${(s: { name: string }) => LABELS[s.name] ?? s.name}
-          @value-changed=${(e: CustomEvent<{ value: Record<string, unknown> }>) => {
+          .data=${data}
+          .schema=${schema}
+          .computeLabel=${(s: FormSchema) => LABELS[s.name] ?? s.title ?? s.name}
+          .computeHelper=${(s: FormSchema) => HELPERS[s.name]}
+          @value-changed=${(e: CustomEvent<{ value: FormData }>) => {
             e.stopPropagation();
             this._commit(e.detail.value);
           }}
         ></ha-form>`;
     }
-    return html`${empty}${this._renderFallback()}`;
+    return html`${empty}<div class="fallback">${schema.map((s) => this._renderFallback(s, data))}</div>`;
   }
 
-  private _renderFallback(): TemplateResult {
-    const data = this._data();
-    const set = (key: string, value: unknown) => this._commit({ ...data, [key]: value });
-    const check = (key: string) =>
-      html`<label class="check"
-        ><input type="checkbox" .checked=${data[key] !== false} @change=${(e: Event) => set(key, (e.target as HTMLInputElement).checked)} />${LABELS[key]}</label
+  /** The same fields with plain controls, for when ha-form is unavailable. */
+  private _renderFallback(item: FormSchema, data: FormData): TemplateResult {
+    if (item.type === 'expandable') {
+      return html`<fieldset>
+        <legend>${item.title}</legend>
+        ${(item.schema ?? []).map((s) => this._renderFallback(s, data))}
+      </fieldset>`;
+    }
+    const set = (value: unknown) => this._commit({ ...data, [item.name]: value });
+    const label = LABELS[item.name] ?? item.name;
+    const helper = HELPERS[item.name] ? html`<span class="hint">${HELPERS[item.name]}</span>` : nothing;
+    const selector = item.selector ?? {};
+    if ('boolean' in selector) {
+      return html`<label class="check"
+        ><input type="checkbox" .checked=${data[item.name] !== false} @change=${(e: Event) => set((e.target as HTMLInputElement).checked)} />${label}</label
       >`;
-    return html`<div class="fallback">
-      <label
-        >${LABELS.device}
-        <select @change=${(e: Event) => set('device', (e.target as HTMLSelectElement).value)}>
-          <option value="" ?selected=${!data.device}>Choose…</option>
-          ${this._devices.map((d) => html`<option value=${d.suffix} ?selected=${d.suffix === data.device}>${d.name} (${d.suffix})</option>`)}
-        </select></label
-      >
-      ${this.kind === 'bank'
-        ? html`<label
-            >${LABELS.bank}
-            <select @change=${(e: Event) => set('bank', (e.target as HTMLSelectElement).value)}>
-              ${['1', '2', '3', '4'].map((v) => html`<option value=${v} ?selected=${v === data.bank}>Bank ${v}</option>`)}
-            </select></label
-          >`
-        : nothing}
-      ${this.kind === 'device' || this.kind === 'status'
-        ? html`<label
-            >${LABELS.name}<input type="text" .value=${(data.name as string) ?? ''} @change=${(e: Event) => set('name', (e.target as HTMLInputElement).value)}
-          /></label>`
-        : nothing}
-      ${this.kind === 'device' ? html`${check('show_status')}${check('show_settings')}` : nothing}
-      ${this.kind === 'status' ? check('show_name') : nothing}
-      ${this.kind === 'settings' ? check('headings') : nothing}
-    </div>`;
+    }
+    if ('text' in selector || 'entity' in selector) {
+      return html`<label
+        >${label}<input
+          type="text"
+          .value=${(data[item.name] as string) ?? ''}
+          ?disabled=${item.disabled}
+          @change=${(e: Event) => set((e.target as HTMLInputElement).value)}
+      /></label>`;
+    }
+    const select = selector.select as { multiple?: boolean; custom_value?: boolean; mode?: string; options: { value: string; label: string }[] };
+    const value = data[item.name];
+    if (select.multiple && select.custom_value) {
+      return html`<label
+        >${label}<input
+          type="text"
+          .value=${(Array.isArray(value) ? value : []).join(', ')}
+          @change=${(e: Event) => set((e.target as HTMLInputElement).value.split(','))}
+        />${helper}</label
+      >`;
+    }
+    if (select.multiple) {
+      const list = Array.isArray(value) ? (value as string[]) : [];
+      return html`<div class="group">
+        ${label}
+        ${select.options.map(
+          (o) => html`<label class="check"
+            ><input
+              type="checkbox"
+              .checked=${list.includes(o.value)}
+              @change=${(e: Event) => set((e.target as HTMLInputElement).checked ? [...list, o.value] : list.filter((v) => v !== o.value))}
+            />${o.label}</label
+          >`,
+        )}
+      </div>`;
+    }
+    return html`<label
+      >${label}
+      <select @change=${(e: Event) => set((e.target as HTMLSelectElement).value)}>
+        ${item.name === 'device' && !value ? html`<option value="" selected>Choose…</option>` : nothing}
+        ${select.options.map((o) => html`<option value=${o.value} ?selected=${o.value === String(value)}>${o.label}</option>`)}
+      </select>
+      ${helper}</label
+    >`;
   }
 }
 

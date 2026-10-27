@@ -1,9 +1,10 @@
 // <pivot-bank-card>: one Pivot bank, drawn like the pivot_banks button-card template.
 import { css, html, nothing, type PropertyValues, type TemplateResult } from 'lit';
 import { callService, hasService, haptic, moreInfo, throttle, toggleEntity } from '../actions';
-import { NUM_BANKS, TIMER_DOCS_URL, TIMER_PRESETS, deviceIds } from '../const';
+import { NUM_BANKS, TIMER_DOCS_URL, deviceIds, type BankChoice } from '../const';
 import { ICONS, icon } from '../icons';
 import {
+  activeBankNumber,
   bankName,
   fillHidden,
   isLive,
@@ -15,10 +16,14 @@ import {
   showAnnounce,
   showMirror,
   showSlider,
+  timerBankNumber,
   timerBarValue,
+  timerPresets,
+  timerPresetsError,
   valueFromMinutes,
   valueLabel,
   type BankView,
+  type TimerPreset,
   type TimerView,
 } from '../logic';
 import { listPivotDevices } from '../discovery';
@@ -28,7 +33,13 @@ import type { HomeAssistant } from '../types';
 import { PivotCardBase, type PivotCardConfig } from './base';
 
 export interface BankCardConfig extends PivotCardConfig {
-  bank?: number;
+  /** 1–4, 'active' (the bank the dial is on) or 'timer' (whichever bank is the timer). */
+  bank?: BankChoice;
+  show_edit?: boolean;
+  /** The Mirror Light Colour and Announce Value rows. */
+  show_bank_options?: boolean;
+  timer_presets?: number[];
+  show_silent_timer?: boolean;
   timer_silent_entity?: string;
 }
 
@@ -178,7 +189,7 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
       .strip {
         position: relative;
         display: grid;
-        grid-template-columns: 15% 15% repeat(4, minmax(0, 1fr));
+        grid-template-columns: 15% 15% repeat(var(--pv-presets, 4), minmax(0, 1fr));
         column-gap: 5px;
         height: 50px;
         margin-top: 20px;
@@ -187,7 +198,8 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
         background: var(--pv-strip);
         cursor: default;
       }
-      .strip.alerting {
+      .strip.alerting,
+      .strip.no-presets {
         grid-template-columns: 1fr 1fr;
       }
       .tbtn {
@@ -250,11 +262,19 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
       .notice a {
         color: inherit;
       }
+      ha-card.unresolved {
+        cursor: default;
+      }
+      .unresolved .notice {
+        margin-top: 0;
+      }
     `,
   ];
 
   private _send = throttle((value: number) => this._writeValue(value), SEND_EVERY_MS);
-  private _pending?: { value: number; until: number };
+  private _pending?: { value: number; until: number; bank: number };
+  /** The bank a drag started on: an 'active' card can change bank mid-drag. */
+  private _dragBank?: number;
   /** The last value this drag sent, so the release does not repeat it. */
   private _lastSent?: number;
   private _ticker?: ReturnType<typeof setTimeout>;
@@ -272,12 +292,26 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
   }
 
   protected override validate(config: BankCardConfig): void {
-    const bank = Number(config.bank ?? 1);
-    if (!Number.isInteger(bank) || bank < 1 || bank > NUM_BANKS) throw new Error('bank must be 1, 2, 3 or 4');
+    const choice = config.bank ?? 1;
+    const n = Number(choice);
+    if (choice !== 'active' && choice !== 'timer' && (!Number.isInteger(n) || n < 1 || n > NUM_BANKS)) {
+      throw new Error('bank must be 1, 2, 3, 4, active or timer');
+    }
+    const presets = timerPresetsError(config.timer_presets);
+    if (presets) throw new Error(presets);
   }
 
-  get bankNumber(): number {
-    return Number(this._config?.bank ?? 1);
+  /** The bank shown now; undefined when 'active' or 'timer' finds no bank. */
+  get bankNumber(): number | undefined {
+    const choice = this._config?.bank ?? 1;
+    if (choice !== 'active' && choice !== 'timer') return Number(choice);
+    const device = this.device;
+    if (!device || !this.hass) return undefined;
+    return choice === 'active' ? activeBankNumber(this.hass, device.suffix) : timerBankNumber(this.hass, device.suffix);
+  }
+
+  private get _presets(): TimerPreset[] {
+    return timerPresets(this._config?.timer_presets);
   }
 
   getCardSize(): number {
@@ -289,6 +323,7 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
   }
 
   private get _silentEntity(): string | undefined {
+    if (this._config?.show_silent_timer === false) return undefined;
     return this._config?.timer_silent_entity || this.device?.timerSilentEntity;
   }
 
@@ -296,9 +331,14 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
     const device = this.device;
     if (!device || !this.hass) return [];
     const ids = deviceIds(device.suffix);
-    const b = ids.bank(this.bankNumber);
+    // A 'timer' card has to notice a bank being re-pointed at the timer.
+    const all = this._config?.bank === 'timer' ? [1, 2, 3, 4].map((n) => ids.bank(n).entity) : [];
+    const n = this.bankNumber;
+    if (n === undefined) return [ids.activeBank, ...all];
+    const b = ids.bank(n);
     const bound = this.hass.states[b.entity]?.state;
     return [
+      ...all,
       b.entity, b.value, b.passive, b.color, b.mirror, b.announce,
       ids.activeBank, ids.toggle('control_mode'), ids.toggle('mute_announcements'),
       ids.timerState, ids.timerDuration, ids.timerEnd,
@@ -313,11 +353,14 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
     const device = this.device;
     if (!this.hass || !this._config) return nothing;
     if (!device) return this.renderProblem();
-    const bank = readBank(this.hass, device.suffix, this.bankNumber);
+    const n = this.bankNumber;
+    if (n === undefined) return this._renderUnresolved(device.name);
+    const bank = readBank(this.hass, device.suffix, n);
     if (this.hasAttribute('light')) bank.color = legibleOnLight(bank.color);
     const timer = readTimer(this.hass, device.suffix, Date.now());
     const label = valueLabel(bank, timer);
     const nameTip = bank.entityId && !bank.isTimer ? bank.entityId : '';
+    const options = this._config.show_bank_options !== false;
 
     return html`<ha-card
       class="bank pv-ready ${bank.active ? 'active' : ''} ${bank.controlOn ? '' : 'control-off'}"
@@ -336,9 +379,11 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
           <ha-ripple></ha-ripple>${icon(ICONS.circle)}
         </button>
         <span class="label text">${`Bank ${bank.n}`}</span>
-        <button class="edit tap" aria-label="Edit the bank ${bank.n} entity" @click=${(e: Event) => this.tap(e, () => moreInfo(this, bank.ids.entity))}>
-          <ha-ripple></ha-ripple><span>EDIT ENTITY</span>${icon(ICONS.pencil)}
-        </button>
+        ${this._config.show_edit === false
+          ? nothing
+          : html`<button class="edit tap" aria-label="Edit the bank ${bank.n} entity" @click=${(e: Event) => this.tap(e, () => moreInfo(this, bank.ids.entity))}>
+              <ha-ripple></ha-ripple><span>EDIT ENTITY</span>${icon(ICONS.pencil)}
+            </button>`}
       </div>
       <div class="name-row tap" title=${nameTip} @click=${(e: Event) => this._nameTap(e, bank)}>
         <ha-ripple></ha-ripple>
@@ -346,8 +391,21 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
       </div>
       ${showSlider(bank) ? this._renderSlider(bank, timer) : nothing}
       ${bank.isTimer ? this._renderTimer(bank, timer) : nothing}
-      ${showMirror(bank) ? this._renderRow(bank.ids.mirror, 'Mirror Light Colour', ICONS.palette) : nothing}
-      ${showAnnounce(bank) ? this._renderRow(bank.ids.announce, 'Announce Value', ICONS.volumeHigh, this._muted) : nothing}
+      ${options && showMirror(bank) ? this._renderRow(bank.ids.mirror, 'Mirror Light Colour', ICONS.palette) : nothing}
+      ${options && showAnnounce(bank) ? this._renderRow(bank.ids.announce, 'Announce Value', ICONS.volumeHigh, this._muted) : nothing}
+    </ha-card>`;
+  }
+
+  /** An 'active' or 'timer' card with no bank to show. */
+  private _renderUnresolved(deviceName: string): TemplateResult {
+    const timer = this._config?.bank === 'timer';
+    return html`<ha-card class="bank unresolved pv-ready" data-measure="bank-card">
+      <div class="notice">
+        ${timer
+          ? html`No bank on ${deviceName} is set to Timer.
+              <a href=${TIMER_DOCS_URL} target="_blank" rel="noreferrer">Timer setup</a>`
+          : html`${deviceName} isn’t reporting its active bank.`}
+      </div>
     </ha-card>`;
   }
 
@@ -371,7 +429,10 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
       @pivot-slide-start=${() => this._slideStart(bank)}
       @pivot-slide=${(e: CustomEvent<{ value: number }>) => this._slide(bank, e.detail.value)}
       @pivot-slide-end=${(e: CustomEvent<{ value: number }>) => this._slideEnd(bank, timer, e.detail.value)}
-      @pivot-slide-cancel=${() => this._send.cancel()}
+      @pivot-slide-cancel=${() => {
+        this._send.cancel();
+        this._dragBank = undefined;
+      }}
       @click=${(e: Event) => e.stopPropagation()}
     ></pivot-slider>`;
   }
@@ -427,9 +488,14 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
     const running = timer.state === 'running';
     const paused = timer.state === 'paused';
     const busy = running || paused;
-    const selected = selectedPreset(timer, bank.value);
+    const presets = this._presets;
+    const selected = selectedPreset(timer, bank.value, presets);
     // The strip's ripple goes last so its hover tint sits over the buttons, as before.
-    return html`<div class="strip tap" @click=${(e: Event) => e.stopPropagation()}>
+    return html`<div
+        class="strip tap ${presets.length ? '' : 'no-presets'}"
+        style=${presets.length === 4 ? '' : `--pv-presets:${presets.length}`}
+        @click=${(e: Event) => e.stopPropagation()}
+      >
         <button
           class="tbtn solid tap"
           aria-label=${running ? 'Pause timer' : paused ? 'Resume timer' : 'Start timer'}
@@ -445,7 +511,7 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
         >
           <ha-ripple></ha-ripple><span class="ticon">${icon(paused ? ICONS.refresh : ICONS.close)}</span>
         </button>
-        ${TIMER_PRESETS.map(
+        ${presets.map(
           (p) => html`<button
             class="tbtn preset tap ${selected === p.minutes ? 'selected' : ''} ${busy ? 'locked' : ''}"
             aria-pressed=${selected === p.minutes ? 'true' : 'false'}
@@ -464,8 +530,9 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
   private _activate = (e?: Event) => {
     e?.stopPropagation();
     const device = this.device;
-    if (!this.hass || !device) return;
-    const bank = readBank(this.hass, device.suffix, this.bankNumber);
+    const n = this.bankNumber;
+    if (!this.hass || !device || n === undefined) return;
+    const bank = readBank(this.hass, device.suffix, n);
     if (bank.active) return;
     haptic(this);
     callService(this, this.hass, 'number', 'set_value', { entity_id: deviceIds(device.suffix).activeBank, value: bank.n });
@@ -479,6 +546,7 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
 
   private _slideStart(bank: BankView): void {
     this._lastSent = undefined;
+    this._dragBank = bank.n;
     // Dragging an inactive bank makes it the active bank first; the integration
     // only applies values written to the active bank (bank_control.py).
     if (!bank.isTimer && !bank.active) this._activate();
@@ -493,19 +561,21 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
     this._send.cancel();
     if (bank.isTimer) this._writeTimer(bank, timer, value);
     else this._writeValue(value);
+    this._dragBank = undefined;
   }
 
-  private _writeValue(value: number): void {
+  private _writeValue(value: number, bankNumber?: number): void {
     const device = this.device;
-    if (!this.hass || !device) return;
-    const bank = readBank(this.hass, device.suffix, this.bankNumber);
+    const n = bankNumber ?? this._dragBank ?? this.bankNumber;
+    if (!this.hass || !device || n === undefined) return;
+    const bank = readBank(this.hass, device.suffix, n);
     if (bank.active) {
       this._pending = undefined;
       if (value === this._lastSent) return;
       this._lastSent = value;
       callService(this, this.hass, 'number', 'set_value', { entity_id: bank.ids.value, value });
     } else {
-      this._pending = { value, until: Date.now() + ACTIVATE_WAIT_MS };
+      this._pending = { value, until: Date.now() + ACTIVATE_WAIT_MS, bank: n };
     }
   }
 
@@ -515,7 +585,7 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
     this._setDuration(bank, timer, minutes, valueFromMinutes(minutes));
   }
 
-  private _preset(bank: BankView, timer: TimerView, preset: (typeof TIMER_PRESETS)[number]): void {
+  private _preset(bank: BankView, timer: TimerView, preset: TimerPreset): void {
     if (timer.state !== 'idle') return;
     this._setDuration(bank, timer, preset.minutes, preset.value);
   }
@@ -588,12 +658,15 @@ export class PivotBankCard extends PivotCardBase<BankCardConfig> {
     super.updated(changed);
     const device = this.device;
     if (!this.hass || !device) return;
-    const bank = readBank(this.hass, device.suffix, this.bankNumber);
     // A value dragged on an inactive bank goes out once the bank is active.
     if (this._pending) {
-      if (Date.now() > this._pending.until) this._pending = undefined;
-      else if (bank.active) this._writeValue(this._pending.value);
+      const pending = this._pending;
+      if (Date.now() > pending.until) this._pending = undefined;
+      else if (readBank(this.hass, device.suffix, pending.bank).active) this._writeValue(pending.value, pending.bank);
     }
+    const n = this.bankNumber;
+    if (n === undefined) return;
+    const bank = readBank(this.hass, device.suffix, n);
     // While the timer runs, re-render exactly when the shown second changes,
     // so the countdown never lags or skips a number.
     clearTimeout(this._ticker);

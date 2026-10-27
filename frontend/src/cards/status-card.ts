@@ -11,7 +11,10 @@ import { PivotCardBase, type PivotCardConfig } from './base';
 
 export interface StatusCardConfig extends PivotCardConfig {
   name?: string;
+  show_title?: boolean;
+  /** The 0.0.93 name for show_title, still read. */
   show_name?: boolean;
+  show_active_bank?: boolean;
 }
 
 export class PivotStatusCard extends PivotCardBase<StatusCardConfig> {
@@ -69,8 +72,16 @@ export class PivotStatusCard extends PivotCardBase<StatusCardConfig> {
     return { device: listPivotDevices(hass)[0]?.suffix ?? '' };
   }
 
+  private get _showTitle(): boolean {
+    return this._config?.show_title !== false && this._config?.show_name !== false;
+  }
+
+  private get _showActiveBank(): boolean {
+    return this._config?.show_active_bank !== false;
+  }
+
   getCardSize(): number {
-    return this._config?.show_name === false ? 1 : 2;
+    return (this._showTitle ? 1 : 0) + (this._showActiveBank ? 1 : 0);
   }
 
   getGridOptions() {
@@ -105,20 +116,22 @@ export class PivotStatusCard extends PivotCardBase<StatusCardConfig> {
         text = 'Active bank unavailable';
       }
     }
-    const title = this._config.name ?? device.name;
+    const title = this._config.name?.trim() || device.name;
     return html`<div class="wrap pv-ready">
-      ${this._config.show_name === false ? nothing : html`<div class="title">${title}</div>`}
-      <div
-        class="status tap"
-        role="button"
-        tabindex="0"
-        @click=${(e: Event) => this.tap(e, () => moreInfo(this, ids.activeBank))}
-        @keydown=${(e: KeyboardEvent) => this.keyActivate(e, () => moreInfo(this, ids.activeBank))}
-      >
-        <ha-ripple></ha-ripple>
-        <span class="sdot" style="color:${color}">${icon(ICONS.circle)}</span>
-        <span class="text">${text}</span>
-      </div>
+      ${this._showTitle ? html`<div class="title">${title}</div>` : nothing}
+      ${this._showActiveBank
+        ? html`<div
+            class="status tap"
+            role="button"
+            tabindex="0"
+            @click=${(e: Event) => this.tap(e, () => moreInfo(this, ids.activeBank))}
+            @keydown=${(e: KeyboardEvent) => this.keyActivate(e, () => moreInfo(this, ids.activeBank))}
+          >
+            <ha-ripple></ha-ripple>
+            <span class="sdot" style="color:${color}">${icon(ICONS.circle)}</span>
+            <span class="text">${text}</span>
+          </div>`
+        : nothing}
     </div>`;
   }
 }

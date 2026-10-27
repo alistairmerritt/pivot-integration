@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  activeBankNumber,
   bankName,
+  banksToShow,
   formatClock,
   legibleOnLight,
   minutesFromValue,
@@ -10,8 +12,11 @@ import {
   showAnnounce,
   showMirror,
   showSlider,
+  timerBankNumber,
   timerBarValue,
   timerLabel,
+  timerPresets,
+  timerPresetsError,
   valueFromMinutes,
   valueLabel,
 } from '../src/logic';
@@ -131,5 +136,54 @@ describe('colours on light themes', () => {
   it('darkens only near-white colours', () => {
     expect(legibleOnLight('#2889FF')).toBe('#2889FF');
     expect(legibleOnLight('#FFFEFA')).not.toBe('#FFFEFA');
+  });
+});
+
+describe('timer presets', () => {
+  it('the default four keep the templates’ bank values', () => {
+    expect(timerPresets().map((p) => [p.minutes, p.value])).toEqual([[15, 24], [30, 50], [45, 75], [60, 100]]);
+    expect(timerPresets([30]).map((p) => p.value)).toEqual([50]);
+  });
+
+  it('any minute from 1 to 60 gets a bank value the integration reads back as that minute', () => {
+    for (let m = 1; m <= 60; m++) {
+      const [preset] = timerPresets([m]);
+      expect(preset.label).toBe(`${m}m`);
+      expect(minutesFromValue(preset.value)).toBe(m);
+    }
+  });
+
+  it('a custom preset shows as selected for its duration', () => {
+    const timer = readTimer(makeHass({ [`number.${S}_timer_duration`]: { state: '10.0' } }), S, NOW);
+    expect(selectedPreset(timer, 0, timerPresets([5, 10]))).toBe(10);
+    expect(selectedPreset(timer, 0)).toBeUndefined();
+  });
+
+  it('validates the option', () => {
+    expect(timerPresetsError(undefined)).toBeUndefined();
+    expect(timerPresetsError([])).toBeUndefined();
+    expect(timerPresetsError([5, 10, 60])).toBeUndefined();
+    expect(timerPresetsError([0])).toMatch(/1 to 60/);
+    expect(timerPresetsError([1, 2, 3, 4, 5, 6, 7])).toMatch(/at most 6/);
+    expect(timerPresetsError([5, 5])).toMatch(/twice/);
+    expect(timerPresetsError({})).toMatch(/list of minutes/);
+  });
+});
+
+describe('which banks', () => {
+  it('finds the active bank and the timer bank', () => {
+    expect(activeBankNumber(makeHass({ [`number.${S}_active_bank`]: { state: '2.0' } }), S)).toBe(2);
+    expect(activeBankNumber(makeHass({ [`number.${S}_active_bank`]: { state: 'unknown' } }), S)).toBeUndefined();
+    expect(activeBankNumber(makeHass({ [`number.${S}_active_bank`]: { state: '7' } }), S)).toBeUndefined();
+    expect(timerBankNumber(makeHass(), S)).toBe(4);
+    expect(timerBankNumber(makeHass({ [`text.${S}_bank_2_entity`]: { state: ' Timer ' } }), S)).toBe(2);
+    expect(timerBankNumber(makeHass({ [`text.${S}_bank_4_entity`]: { state: '' } }), S)).toBeUndefined();
+  });
+
+  it('lists banks in order, without the empty ones when asked', () => {
+    const hass = makeHass({ [`text.${S}_bank_3_entity`]: { state: 'unknown' } });
+    expect(banksToShow(hass, S, 'all', false)).toEqual([1, 2, 3, 4]);
+    expect(banksToShow(hass, S, 'all', true)).toEqual([1, 2, 4]);
+    expect(banksToShow(hass, S, [4, 3, 1, 1], true)).toEqual([1, 4]);
   });
 });

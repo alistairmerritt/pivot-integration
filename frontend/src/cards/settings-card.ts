@@ -11,6 +11,8 @@ import { PivotCardBase, type PivotCardConfig } from './base';
 export interface SettingsCardConfig extends PivotCardConfig {
   rows?: SettingsRow[];
   headings?: boolean;
+  /** Draw the rows on a card, for dashboards with a background image. */
+  background?: boolean;
 }
 
 export class PivotSettingsCard extends PivotCardBase<SettingsCardConfig> {
@@ -21,6 +23,15 @@ export class PivotSettingsCard extends PivotCardBase<SettingsCardConfig> {
         display: flex;
         flex-direction: column;
         gap: 8px;
+      }
+      .wrap.boxed {
+        padding: 12px 16px 14px;
+        border-radius: var(--pivot-card-radius, 20px);
+        background: var(--ha-card-background, var(--card-background-color, #1c1c1e));
+      }
+      .empty {
+        font-size: 14px;
+        color: var(--pv-description);
       }
       .heading {
         padding: 1px;
@@ -99,7 +110,8 @@ export class PivotSettingsCard extends PivotCardBase<SettingsCardConfig> {
   }
 
   private get _rows(): SettingsRow[] {
-    return this._config?.rows?.length ? this._config.rows : ALL_ROWS;
+    // An empty list shows nothing; no list shows everything. Rows keep the order given.
+    return this._config?.rows ?? ALL_ROWS;
   }
 
   private _mediaPlayer(): string | undefined {
@@ -134,7 +146,8 @@ export class PivotSettingsCard extends PivotCardBase<SettingsCardConfig> {
     } else {
       parts.push(...rows.map((r) => this._row(r)));
     }
-    return html`<div class="wrap pv-ready">${parts}</div>`;
+    if (!rows.length) parts.push(html`<div class="empty">No settings chosen. Pick some in the card editor.</div>`);
+    return html`<div class="wrap pv-ready ${this._config.background ? 'boxed' : ''}">${parts}</div>`;
   }
 
   private _row(row: SettingsRow): TemplateResult {

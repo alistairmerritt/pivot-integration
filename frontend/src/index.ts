@@ -8,10 +8,10 @@ import './cards/status-card';
 import './cards/settings-card';
 
 const CARDS = [
-  { type: 'pivot-device-card', name: 'Pivot', description: 'The whole Pivot dashboard for one dial: active bank, the four banks and its settings.' },
-  { type: 'pivot-bank-card', name: 'Pivot bank', description: 'One Pivot bank: its entity, value, colour, toggles and timer controls.' },
-  { type: 'pivot-status-card', name: 'Pivot status', description: 'A Pivot dial’s name and its active bank.' },
-  { type: 'pivot-settings-card', name: 'Pivot settings', description: 'Control mode, device volume and announcement settings for a Pivot dial.' },
+  { type: 'pivot-device-card', name: 'Pivot', description: 'Everything for one dial: its active bank, banks and settings. Choose which banks show and where the settings go.' },
+  { type: 'pivot-bank-card', name: 'Pivot bank', description: 'One bank: a chosen bank, the one the dial is on, or the timer bank. For building your own layout.' },
+  { type: 'pivot-status-card', name: 'Pivot status', description: 'A dial’s name and the bank it’s on. For building your own layout.' },
+  { type: 'pivot-settings-card', name: 'Pivot settings', description: 'Control Mode, volume and announcement settings, to place anywhere. Pairs with the Pivot card’s settings turned off.' },
 ];
 
 window.customCards = window.customCards || [];

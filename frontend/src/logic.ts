@@ -2,7 +2,16 @@
 // Ported from the button-card templates (docs: assets/dashboard-example.yaml),
 // with the fixes listed in the 0.0.93 changelog.
 
-import { ANNOUNCEABLE_DOMAINS, DEFAULT_BANK_COLORS, TIMER_PRESETS, UNSET_STATES, deviceIds, type BankIds } from './const';
+import {
+  ANNOUNCEABLE_DOMAINS,
+  DEFAULT_BANK_COLORS,
+  MAX_TIMER_PRESETS,
+  NUM_BANKS,
+  TIMER_PRESETS,
+  UNSET_STATES,
+  deviceIds,
+  type BankIds,
+} from './const';
 import type { HassEntity, HomeAssistant } from './types';
 
 export function num(value: string | undefined, fallback: number): number {
@@ -72,6 +81,29 @@ export function bankName(bank: BankView): string {
   if (bank.isTimer) return 'Timer';
   if (bank.entityId) return bank.bound?.attributes.friendly_name || bank.entityId;
   return 'No entity assigned';
+}
+
+/** The bank has an entity or the timer assigned to it. */
+export const isAssigned = (bank: BankView) => bank.isTimer || !!bank.entityId;
+
+/** The bank the dial is on, if the active-bank entity reads 1–4. */
+export function activeBankNumber(hass: HomeAssistant, suffix: string): number | undefined {
+  const n = Math.round(num(hass.states[deviceIds(suffix).activeBank]?.state, NaN));
+  return n >= 1 && n <= NUM_BANKS ? n : undefined;
+}
+
+/** The first bank assigned to the timer. */
+export function timerBankNumber(hass: HomeAssistant, suffix: string): number | undefined {
+  for (let n = 1; n <= NUM_BANKS; n++) {
+    if ((hass.states[deviceIds(suffix).bank(n).entity]?.state ?? '').trim().toLowerCase() === 'timer') return n;
+  }
+  return undefined;
+}
+
+/** Bank numbers for a list-style `banks` option ('all' or a list), optionally without the empty ones. */
+export function banksToShow(hass: HomeAssistant, suffix: string, banks: 'all' | readonly number[], hideUnassigned: boolean): number[] {
+  const list = banks === 'all' ? [1, 2, 3, 4] : [...new Set(banks)].sort((a, b) => a - b);
+  return hideUnassigned ? list.filter((n) => isAssigned(readBank(hass, suffix, n))) : list;
 }
 
 export const showMirror = (bank: BankView) => bank.domain === 'light';
@@ -155,12 +187,38 @@ export function timerBarValue(timer: TimerView, bankValue: number): number {
   return bankValue;
 }
 
-export function selectedPreset(timer: TimerView, bankValue: number): number | undefined {
+export interface TimerPreset {
+  minutes: number;
+  /** The bank value whose duration is these minutes. */
+  value: number;
+  label: string;
+}
+
+/** Preset buttons for a list of minutes. The default four keep the templates' bank values. */
+export function timerPresets(minutes?: readonly number[]): TimerPreset[] {
+  if (!minutes) return TIMER_PRESETS;
+  return minutes.map(
+    (m) => TIMER_PRESETS.find((p) => p.minutes === m) ?? { minutes: m, value: Math.round(valueFromMinutes(m)), label: `${m}m` },
+  );
+}
+
+/** Why a timer_presets option is unusable, or undefined when it is fine. */
+export function timerPresetsError(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return 'timer_presets must be a list of minutes, like [15, 30, 45, 60]';
+  if (value.length > MAX_TIMER_PRESETS) return `timer_presets can have at most ${MAX_TIMER_PRESETS} entries`;
+  const bad = value.filter((m) => !Number.isInteger(m) || m < 1 || m > 60);
+  if (bad.length) return `timer_presets must be whole minutes from 1 to 60 (not ${bad.join(', ')})`;
+  if (new Set(value).size !== value.length) return 'timer_presets has the same minutes twice';
+  return undefined;
+}
+
+export function selectedPreset(timer: TimerView, bankValue: number, presets: readonly TimerPreset[] = TIMER_PRESETS): number | undefined {
   if (timer.state !== 'idle') return undefined;
   if (timer.enabled && timer.durationMin !== undefined) {
-    return TIMER_PRESETS.find((p) => p.minutes === Math.round(timer.durationMin!))?.minutes;
+    return presets.find((p) => p.minutes === Math.round(timer.durationMin!))?.minutes;
   }
-  return TIMER_PRESETS.find((p) => p.value === Math.round(bankValue))?.minutes;
+  return presets.find((p) => p.value === Math.round(bankValue))?.minutes;
 }
 
 // ── Value label ────────────────────────────────────────────────────────────
