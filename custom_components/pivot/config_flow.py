@@ -185,9 +185,11 @@ def _bank_entity_schema(current: dict[str, str] | None = None) -> vol.Schema:
         entity_sel = selector.EntitySelector(
             selector.EntitySelectorConfig(domain=domains, multiple=False)
         )
-        # Don't pre-fill 'timer' — that bank is represented by the timer_banks selector
+        # Don't pre-fill 'timer' — that bank is represented by the timer_banks selector.
+        # A suggested value, not a default: the form sends nothing for a
+        # cleared picker, and a default would put the old entity back.
         if existing and existing != "timer":
-            fields[vol.Optional(key, default=existing)] = entity_sel
+            fields[vol.Optional(key, description={"suggested_value": existing})] = entity_sel
         else:
             fields[vol.Optional(key)] = entity_sel
     return vol.Schema(fields)
@@ -521,13 +523,15 @@ class PivotOptionsFlow(config_entries.OptionsFlowWithReload):
                 self.config_entry.data.get(CONF_ANNOUNCEMENTS, True))
         )
 
+        # Suggested values, not defaults: the form sends nothing for a cleared
+        # field, and a default would fill the old entity straight back in.
         schema_fields: dict = {}
         if current_tts:
-            schema_fields[vol.Optional(CONF_TTS_ENTITY, default=current_tts)] = tts_sel
+            schema_fields[vol.Optional(CONF_TTS_ENTITY, description={"suggested_value": current_tts})] = tts_sel
         else:
             schema_fields[vol.Optional(CONF_TTS_ENTITY)] = tts_sel
         if current_mp:
-            schema_fields[vol.Optional(CONF_MEDIA_PLAYER_ENTITY, default=current_mp)] = mp_sel
+            schema_fields[vol.Optional(CONF_MEDIA_PLAYER_ENTITY, description={"suggested_value": current_mp})] = mp_sel
         else:
             schema_fields[vol.Optional(CONF_MEDIA_PLAYER_ENTITY)] = mp_sel
         schema_fields[vol.Optional(CONF_ANNOUNCEMENTS, default=current_ann)] = selector.BooleanSelector()

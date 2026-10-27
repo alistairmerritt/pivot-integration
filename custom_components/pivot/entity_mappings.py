@@ -160,7 +160,9 @@ async def sync_value_from_entity(
 ) -> None:
     """Read current state from an entity and sync it to the bank value number."""
     state = hass.states.get(entity_id)
-    if state is None:
+    # An unavailable entity reports no value, which is not the same as zero:
+    # a light without a brightness read as fully on.
+    if state is None or state.state in ("unavailable", "unknown"):
         return
 
     synced_value: float | None = None

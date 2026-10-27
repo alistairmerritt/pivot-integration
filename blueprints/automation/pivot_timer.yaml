@@ -340,13 +340,17 @@ action:
       # preserving long press for custom actions on other banks.
       # A dashboard long press arrives as an event trigger, which has no
       # to_state at all, so test the trigger platform before touching it.
+      # A VPE reconnecting brings its button back from unavailable still
+      # carrying its LAST event type, which is not a new press.
       - conditions:
           - condition: template
             value_template: >
               {{ trigger.id == 'long_press'
                  and (trigger.platform == 'event'
-                      or trigger.to_state is none
-                      or trigger.to_state.attributes.get('event_type') == 'long_press') }}
+                      or (trigger.from_state is not none
+                          and trigger.from_state.state != 'unavailable'
+                          and trigger.to_state is not none
+                          and trigger.to_state.attributes.get('event_type') == 'long_press')) }}
           - condition: template
             value_template: >
               {{ bank | int(0) > 0

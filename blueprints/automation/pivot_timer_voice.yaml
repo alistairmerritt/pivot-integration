@@ -233,6 +233,9 @@ actions:
         sequence:
           # Update timer_duration (minutes) only when the requested time is 60s or more.
           # Sub-minute timers leave timer_duration at its current value.
+          # timer_duration stops at the dial's 60 minutes, and a bigger value
+          # fails the whole start. A longer timer still runs its full time
+          # from timer_end; its gauge stays full until the last hour.
           - if:
               - condition: template
                 value_template: "{{ start_duration_secs | int(0) >= 60 }}"
@@ -241,7 +244,7 @@ actions:
                 target:
                   entity_id: "{{ duration_entity }}"
                 data:
-                  value: "{{ (start_duration_secs | int // 60) }}"
+                  value: "{{ [start_duration_secs | int // 60, state_attr(duration_entity, 'max') | int(60)] | min }}"
           - action: text.set_value
             target:
               entity_id: "{{ timer_end_entity }}"

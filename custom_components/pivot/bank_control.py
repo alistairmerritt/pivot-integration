@@ -161,6 +161,21 @@ def setup_bank_control_listener(
             timer_st = hass.states.get(timer_state_id)
             if timer_st is None or timer_st.state != "idle":
                 return  # Knob does nothing while running/paused
+            # A timer reset empties the gauge, and read as a knob turn that 0
+            # became a 1-minute duration. Two checks, for either order:
+            # - The timer must have been idle when this value was WRITTEN, not
+            #   just now. Home Assistant hands over an event fired while
+            #   another is being handled only after that one finishes, so a
+            #   cancel run from a button press empties the gauge, sets the
+            #   timer idle, and only then does this listener hear the gauge.
+            # - A gauge written by the same run that set the timer idle is
+            #   that run's reset (blueprints imported before 0.0.95 set idle
+            #   first), not someone turning the knob.
+            if (
+                timer_st.last_changed >= new_state.last_changed
+                or timer_st.context.id == new_state.context.id
+            ):
+                return
             duration_eid = f"number.{suffix}_timer_duration"
             dur_st = hass.states.get(duration_eid)
             if dur_st is None:

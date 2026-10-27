@@ -1,1 +1,5 @@
 pytest-homeassistant-custom-component==0.13.345
+# The voice blueprint's conversation triggers need Home Assistant's
+# conversation integration, pinned to what that Home Assistant release uses.
+hassil==3.8.0
+home-assistant-intents==2026.6.24

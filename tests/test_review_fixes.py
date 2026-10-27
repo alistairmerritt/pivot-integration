@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pytest
 import yaml
+from homeassistant.components import conversation
+from homeassistant.core import Context
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
@@ -18,7 +21,11 @@ from pytest_homeassistant_custom_component.common import (
 
 from custom_components.pivot import services
 from custom_components.pivot.button import do_bank_toggle
-from custom_components.pivot.const import DOMAIN
+from custom_components.pivot.const import (
+    CONF_MEDIA_PLAYER_ENTITY,
+    CONF_TTS_ENTITY,
+    DOMAIN,
+)
 
 from .const import ENTRY_DATA, SUFFIX
 from .test_device_link import _dead_button_entry, _issue
@@ -246,3 +253,150 @@ async def test_repointing_a_bank_at_the_timer_shows_its_duration(hass, running_t
     # 25 minutes on the 1–60 scale, and the duration itself untouched.
     assert float(hass.states.get(f"number.{SUFFIX}_bank_2_value").state) == 41.0
     assert float(hass.states.get(f"number.{SUFFIX}_timer_duration").state) == 25.0
+
+
+# --- Configure can clear what it shows ----------------------------------------
+# Home Assistant's form sends nothing at all for a field the user cleared, so
+# a field with a default could never be emptied: the default came back.
+
+async def test_configure_can_clear_a_bank(hass, setup_pivot):
+    await hass.services.async_call(
+        "text", "set_value", {"entity_id": f"text.{SUFFIX}_bank_1_entity", "value": "light.desk"}, blocking=True,
+    )
+    result = await hass.config_entries.options.async_init(setup_pivot.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], user_input={})
+    # The form still opens with the bank filled in.
+    shown = {str(key): key.description for key in result["data_schema"].schema}
+    assert shown["bank_0_entity"] == {"suggested_value": "light.desk"}
+    # What the form sends once Bank 1's picker is cleared.
+    result = await hass.config_entries.options.async_configure(result["flow_id"], user_input={"timer_banks": "none"})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    assert hass.states.get(f"text.{SUFFIX}_bank_1_entity").state == ""
+
+
+async def test_configure_can_clear_the_voice_entities(hass):
+    data = {**ENTRY_DATA, CONF_TTS_ENTITY: "tts.cloud", CONF_MEDIA_PLAYER_ENTITY: "media_player.kitchen"}
+    entry = MockConfigEntry(domain=DOMAIN, data=data, title="Test VPE")
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    shown = {str(key): key.description for key in result["data_schema"].schema}
+    assert shown[CONF_TTS_ENTITY] == {"suggested_value": "tts.cloud"}
+    assert shown[CONF_MEDIA_PLAYER_ENTITY] == {"suggested_value": "media_player.kitchen"}
+    result = await hass.config_entries.options.async_configure(result["flow_id"], user_input={"announcements": False})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], user_input={"timer_banks": "none"})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_TTS_ENTITY] == ""
+    assert entry.options[CONF_MEDIA_PLAYER_ENTITY] == ""
+
+
+# --- The button reconnecting is not a long press -------------------------------
+
+@pytest.mark.parametrize("expected_lingering_timers", [True])
+async def test_timer_survives_the_button_reconnecting(hass, running_timer, tmp_path):
+    """A reconnecting VPE brings back its button's last event; a long press there cancelled the timer."""
+    button = TIMER_INPUTS["button_event_entity"]
+    long_press = {"event_type": "long_press", "device_class": "button"}
+    hass.states.async_set(button, "2026-10-27T08:00:00.000+00:00", long_press)
+    await _use_blueprint(hass, tmp_path, "pivot_timer.yaml", TIMER_INPUTS)
+    hass.states.async_set(button, "unavailable", {"device_class": "button"})
+    await hass.async_block_till_done()
+    hass.states.async_set(button, "2026-10-27T08:00:00.000+00:00", long_press)
+    await hass.async_block_till_done()
+    assert _timer(hass) == ("running", 25.0, 60.0)
+    # A real long press still cancels.
+    hass.states.async_set(button, "2026-10-27T09:00:00.000+00:00", long_press)
+    await hass.async_block_till_done()
+    assert _timer(hass) == ("idle", 25.0, 0.0)
+
+
+# --- Voice timers longer than the dial's hour ----------------------------------
+
+@pytest.mark.parametrize("expected_lingering_timers", [True])
+@pytest.mark.parametrize(
+    ("phrase", "minutes"),
+    [("set a timer for an hour and a half", 90), ("set a 2 hour timer", 120), ("set a 20 minute timer", 20)],
+)
+async def test_voice_timers_longer_than_an_hour_start(hass, running_timer, tmp_path, phrase, minutes):
+    """Timer Duration stops at 60 minutes, and writing 90 to it stopped the voice timer from starting."""
+    await hass.services.async_call(
+        "select", "select_option", {"entity_id": f"select.{SUFFIX}_timer_state", "option": "idle"}, blocking=True,
+    )
+    esphome = MockConfigEntry(domain="esphome")
+    esphome.add_to_hass(hass)
+    vpe = dr.async_get(hass).async_get_or_create(
+        config_entry_id=esphome.entry_id, identifiers={("esphome", "aa:bb:cc:00:09:09")},
+    )
+    er.async_get(hass).async_get_or_create(
+        "switch", "esphome", "timer-ringing", device_id=vpe.id, suggested_object_id=f"{SUFFIX}_timer_ringing",
+    )
+    assert await async_setup_component(hass, "homeassistant", {})
+    assert await async_setup_component(hass, "conversation", {})
+    await _use_blueprint(hass, tmp_path, "pivot_timer_voice.yaml", {
+        "suffix": SUFFIX, "timer_ringing_entity": TIMER_INPUTS["timer_ringing_entity"],
+    })
+    await conversation.async_converse(hass, phrase, None, Context(), language="en", device_id=vpe.id)
+    await hass.async_block_till_done()
+    assert hass.states.get(f"select.{SUFFIX}_timer_state").state == "running"
+    ends = dt_util.parse_datetime(hass.states.get(f"text.{SUFFIX}_timer_end").state)
+    assert abs((ends - dt_util.now()).total_seconds() - minutes * 60) < 5
+    # The dial's own duration holds what it can show.
+    assert float(hass.states.get(f"number.{SUFFIX}_timer_duration").state) == min(minutes, 60)
+
+
+# --- A physical long press, through the button's own event ---------------------
+
+@pytest.mark.parametrize("expected_lingering_timers", [True])
+async def test_physical_long_press_cancel_keeps_the_duration(hass, running_timer, tmp_path):
+    """Run from the button's state change, the cancel's gauge write reached Pivot after the timer went idle."""
+    button = TIMER_INPUTS["button_event_entity"]
+    hass.states.async_set(button, "2026-10-27T08:00:00.000+00:00", {"event_type": "single_press"})
+    await _use_blueprint(hass, tmp_path, "pivot_timer.yaml", TIMER_INPUTS)
+    hass.states.async_set(button, "2026-10-27T08:05:00.000+00:00", {"event_type": "long_press"})
+    await hass.async_block_till_done()
+    assert _timer(hass) == ("idle", 25.0, 0.0)
+
+
+# --- An unavailable light is not a full one ------------------------------------
+
+async def test_unavailable_light_leaves_the_gauge_alone(hass, setup_pivot):
+    """An unavailable light has no brightness, which read as on at 100%."""
+    gauge = f"number.{SUFFIX}_bank_1_value"
+    hass.states.async_set("light.desk", "on", {"brightness": 51})
+    await hass.services.async_call(
+        "text", "set_value", {"entity_id": f"text.{SUFFIX}_bank_1_entity", "value": "light.desk"}, blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert float(hass.states.get(gauge).state) == 20.0
+    hass.states.async_set("light.desk", "unavailable")
+    await hass.services.async_call(
+        "number", "set_value", {"entity_id": f"number.{SUFFIX}_active_bank", "value": 2}, blocking=True,
+    )
+    await hass.services.async_call(
+        "number", "set_value", {"entity_id": f"number.{SUFFIX}_active_bank", "value": 1}, blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert float(hass.states.get(gauge).state) == 20.0
+
+
+async def test_an_old_blueprint_cancel_keeps_the_duration(hass, running_timer):
+    """Blueprints imported before 0.0.95 set the timer idle, then empty the gauge, in one run."""
+    run = Context()
+    await hass.services.async_call(
+        "select", "select_option", {"entity_id": f"select.{SUFFIX}_timer_state", "option": "idle"},
+        blocking=True, context=run,
+    )
+    await hass.services.async_call(
+        "number", "set_value", {"entity_id": f"number.{SUFFIX}_bank_4_value", "value": 0},
+        blocking=True, context=run,
+    )
+    await hass.async_block_till_done()
+    assert _timer(hass) == ("idle", 25.0, 0.0)
+    # Turning the knob afterwards still sets a duration.
+    await hass.services.async_call(
+        "number", "set_value", {"entity_id": f"number.{SUFFIX}_bank_4_value", "value": 50}, blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert _timer(hass) == ("idle", 30.0, 50.0)
