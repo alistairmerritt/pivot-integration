@@ -157,6 +157,7 @@ triggers:
       - "dismiss timer"
       - "dismiss the timer"
       - "dismiss alarm"
+      - "dismiss the alarm"
       - "stop the alarm"
     id: dismiss
 

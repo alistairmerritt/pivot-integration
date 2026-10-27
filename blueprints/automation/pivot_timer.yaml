@@ -99,6 +99,13 @@ variables:
 
     {% endif %}
 
+# Triggers are set up before `variables` exist, so the template trigger below
+# reads the suffix from here. Without it, "Switch to timer bank when timer
+# starts" never fired: the template saw no suffix and checked a timer that
+# does not exist.
+trigger_variables:
+  suffix: !input suffix
+
 trigger:
   # Single press on the configured bank — start / pause / resume / dismiss
   - trigger: event

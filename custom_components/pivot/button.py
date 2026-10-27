@@ -109,9 +109,13 @@ def setup_button_event_listener(
         if new_state is None:
             return
 
-        # Skip reconnect transitions (restored state looks like a real press).
+        # Skip reconnect transitions: a button that reconnects comes back from
+        # unavailable still carrying its last press, which looks like a new
+        # one. Not "unknown": that is a button with no last press to restore
+        # (Home Assistant stopped while the VPE was offline), and the next
+        # change after it is always a real press.
         old_state = event.data.get("old_state")
-        if old_state is None or old_state.state in ("unavailable", "unknown"):
+        if old_state is None or old_state.state == "unavailable":
             _LOGGER.debug(
                 "Pivot: skipping %s button event for %s — reconnect transition "
                 "(old_state=%s)",
