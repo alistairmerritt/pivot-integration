@@ -25,6 +25,7 @@ from .const import (
     DOMAIN,
     MANAGEMENT_BLUEPRINTS,
     NUM_BANKS,
+    device_entry_ids,
     make_suffix,
     option_or_data,
 )
@@ -41,7 +42,7 @@ def _get_esphome_devices(hass: HomeAssistant) -> dict[str, str]:
 
     for device in dev_reg.devices.values():
         esphome_entries = [
-            eid for eid in device.config_entries
+            eid for eid in device_entry_ids(device)
             if (entry := hass.config_entries.async_get_entry(eid)) is not None
             and entry.domain == "esphome"
         ]
@@ -73,7 +74,7 @@ def _get_esphome_device_name(hass: HomeAssistant, device: dr.DeviceEntry) -> str
     which is either "home-assistant-voice-0aaae0.local", the bare name, or an
     IP address. The .local suffix is stripped; an IP address is rejected.
     """
-    for eid in device.config_entries:
+    for eid in device_entry_ids(device):
         entry = hass.config_entries.async_get_entry(eid)
         if entry and entry.domain == "esphome":
             # Never log entry.data wholesale — ESPHome stores "password" and
@@ -213,7 +214,7 @@ def _move_pivot_device(
         return
     dev_reg = dr.async_get(hass)
     pivot_device = dev_reg.async_get_device(identifiers={(DOMAIN, old_device_id)})
-    if pivot_device is None or entry.entry_id not in pivot_device.config_entries:
+    if pivot_device is None or entry.entry_id not in device_entry_ids(pivot_device):
         return
     if dev_reg.async_get_device(identifiers={(DOMAIN, new_device_id)}) is not None:
         # A Pivot device for the target already exists (a previous entry for

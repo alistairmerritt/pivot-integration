@@ -57,6 +57,7 @@ from .const import (
     CONF_DEVICE_SUFFIX,
     CONF_ESPHOME_DEVICE_NAME,
     NUM_BANKS,
+    device_entry_ids,
     make_suffix,
 )
 
@@ -94,7 +95,7 @@ def live_esphome_name(hass: HomeAssistant, device_id: str | None) -> str | None:
     device = dr.async_get(hass).async_get(device_id)
     if device is None:
         return None
-    for config_entry_id in device.config_entries:
+    for config_entry_id in device_entry_ids(device):
         esphome_entry = hass.config_entries.async_get_entry(config_entry_id)
         if esphome_entry is not None and esphome_entry.domain == "esphome":
             name = esphome_entry.data.get("device_name") or esphome_entry.data.get("name")

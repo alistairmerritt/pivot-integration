@@ -169,7 +169,7 @@ export class PivotSettingsCard extends PivotCardBase<SettingsCardConfig> {
       <ha-ripple></ha-ripple>
       <span class="stitle text">${text.title}</span>
       <span class="sdesc text">${text.description}</span>
-      <span class="toggle inset ${on ? 'on' : ''}"><span class="knob"></span></span>
+      <span class="toggle ${on ? 'on' : ''}"><span class="knob"></span></span>
     </div>`;
   }
 

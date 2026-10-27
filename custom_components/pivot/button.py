@@ -10,7 +10,12 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .announcements import do_tts
-from .const import CONF_DEVICE_ID, CONF_DEVICE_SUFFIX, CONF_ESPHOME_DEVICE_NAME
+from .const import (
+    CONF_DEVICE_ID,
+    CONF_DEVICE_SUFFIX,
+    CONF_ESPHOME_DEVICE_NAME,
+    device_entry_ids,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,7 +68,7 @@ def setup_button_event_listener(
         if esphome_name:
             dev_reg = dr.async_get(hass)
             for device in dev_reg.devices.values():
-                for eid in device.config_entries:
+                for eid in device_entry_ids(device):
                     cfg = hass.config_entries.async_get_entry(eid)
                     if cfg and cfg.domain == "esphome":
                         host = (cfg.data.get("name") or cfg.data.get("host") or "").removesuffix(".local").strip()

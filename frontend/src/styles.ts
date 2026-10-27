@@ -2,23 +2,29 @@
 // (checked against the live dashboard), so the cards land on the same pixels.
 import { css } from 'lit';
 
-/** Colour tokens. Override any --pivot-* variable from a theme. */
+/**
+ * Colour tokens. Override any --pivot-* variable from a theme.
+ * Neutrals are white or black over the card, never solid greys, so they sit
+ * right on see-through cards and background images. On a solid #1c1c1e card
+ * they come out as the button-card templates' greys (#545454, #171717, ...).
+ */
 export const tokens = css`
   :host {
     --pv-text: var(--primary-text-color, #f2f2f7);
-    --pv-muted: var(--pivot-muted-color, #545454);
+    --pv-muted: var(--pivot-muted-color, rgba(255, 255, 255, 0.25));
     --pv-description: var(--pivot-description-color, rgba(255, 255, 255, 0.5));
     --pv-status-text: var(--pivot-status-text-color, #ffffff);
-    --pv-toggle-track: var(--pivot-toggle-track-color, #171717);
-    --pv-toggle-off: var(--pivot-toggle-off-color, #545454);
+    --pv-toggle-track: var(--pivot-toggle-track-color, rgba(0, 0, 0, 0.3));
+    --pv-toggle-edge: var(--pivot-toggle-edge-color, rgba(255, 255, 255, 0.08));
+    --pv-toggle-off: var(--pivot-toggle-off-color, rgba(255, 255, 255, 0.26));
     --pv-toggle-on: var(--pivot-toggle-on-color, #ffffff);
-    --pv-strip: var(--pivot-timer-strip-color, #171717);
-    --pv-button: var(--pivot-button-color, #545454);
-    --pv-button-idle: var(--pivot-button-idle-color, #2a2a2a);
+    --pv-strip: var(--pivot-timer-strip-color, rgba(0, 0, 0, 0.18));
+    --pv-button: var(--pivot-button-color, rgba(255, 255, 255, 0.26));
+    --pv-button-idle: var(--pivot-button-idle-color, rgba(255, 255, 255, 0.08));
     --pv-preset: var(--pivot-preset-color, rgba(255, 255, 255, 0.7));
     --pv-preset-selected: var(--pivot-preset-selected-color, #ffffff);
     --pv-dimmed-icon: var(--pivot-dimmed-icon-color, rgba(255, 255, 255, 0.3));
-    --pv-active-border: var(--pivot-active-border-color, rgba(180, 180, 180, 0.4));
+    --pv-active-border: var(--pivot-active-border-color, rgba(255, 255, 255, 0.27));
     --pv-volume-track: var(--pivot-volume-track-color, rgba(255, 255, 255, 0.3));
     --pv-volume-fill: var(--pivot-volume-fill-color, #ffffff);
     --pv-value-font: var(--pivot-value-font-family, 'SF Pro Rounded', ui-rounded, system-ui, sans-serif);
@@ -37,7 +43,8 @@ export const tokens = css`
     --pv-description: var(--pivot-description-color, rgba(0, 0, 0, 0.55));
     --pv-status-text: var(--pivot-status-text-color, var(--primary-text-color, #212121));
     --pv-toggle-track: var(--pivot-toggle-track-color, rgba(0, 0, 0, 0.1));
-    --pv-toggle-off: var(--pivot-toggle-off-color, #9e9e9e);
+    --pv-toggle-edge: var(--pivot-toggle-edge-color, transparent);
+    --pv-toggle-off: var(--pivot-toggle-off-color, rgba(0, 0, 0, 0.38));
     --pv-toggle-on: var(--pivot-toggle-on-color, var(--primary-text-color, #212121));
     --pv-strip: var(--pivot-timer-strip-color, rgba(0, 0, 0, 0.05));
     --pv-button: var(--pivot-button-color, rgba(0, 0, 0, 0.14));
@@ -86,7 +93,7 @@ export const tokens = css`
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* The on/off switch: a 45x27 track, a 20px knob at 2px (off) or 20px (on). */
+  /* The on/off switch: a 45x27 track and a 21px knob with an even 3px gap all round. */
   .toggle {
     position: relative;
     flex: none;
@@ -94,27 +101,22 @@ export const tokens = css`
     height: 27px;
     border-radius: 25px;
     background: var(--pv-toggle-track);
+    /* The edge keeps the track visible where the dark fill meets a black page. */
+    box-shadow: inset 0 0 0 1px var(--pv-toggle-edge);
   }
   .toggle .knob {
     position: absolute;
-    top: 3.5px;
-    left: 2px;
-    width: 20px;
-    height: 20px;
-    border-radius: 25px;
+    top: 3px;
+    left: 3px;
+    width: 21px;
+    height: 21px;
+    border-radius: 50%;
     background: var(--pv-toggle-off);
     transition: left 0.15s ease, background-color 0.15s ease;
   }
   .toggle.on .knob {
-    left: 20px;
-    background: var(--pv-toggle-on);
-  }
-  /* The settings rows' toggles sat inside a 1px border: knobs land 1px further right. */
-  .toggle.inset .knob {
-    left: 3px;
-  }
-  .toggle.inset.on .knob {
     left: 21px;
+    background: var(--pv-toggle-on);
   }
   .disabled {
     pointer-events: none;

@@ -52,6 +52,9 @@ class PivotBankColorLight(PivotEntity, LightEntity):
 
     _attr_color_mode = ColorMode.RGB
     _attr_supported_color_modes = {ColorMode.RGB}
+    # An RGB light must report a brightness; None broke Google Assistant's
+    # state queries for every Pivot colour light. Brightness is not used.
+    _attr_brightness = 255
 
     def __init__(self, definition: dict, config_entry: ConfigEntry) -> None:
         super().__init__(definition, config_entry)

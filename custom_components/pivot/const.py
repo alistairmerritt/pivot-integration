@@ -67,6 +67,21 @@ def option_or_data(entry: ConfigEntry, key: str, default: Any = "") -> Any:
     return default if value is None else value
 
 
+def device_entry_ids(device: Any) -> set[str]:
+    """Return the config entry IDs a device registry entry belongs to.
+
+    Home Assistant 2026.10 gave every device a single `config_entry_id` and
+    deprecated `config_entries`, which stops working in 2027.10. Older
+    versions only have `config_entries`.
+    """
+    if not hasattr(device, "config_entry_id"):
+        return set(device.config_entries)
+    if getattr(device, "is_composite_device", False):
+        # A device restored from before 2026.10 can still span several entries.
+        return set(device.config_entries)
+    return {device.config_entry_id} if device.config_entry_id else set()
+
+
 def make_suffix(esphome_device_name: str) -> str:
     """
     Convert an ESPHome device name into a safe entity ID suffix.
