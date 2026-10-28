@@ -3,6 +3,7 @@ import asyncio
 import shutil
 from datetime import timedelta
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 import yaml
@@ -20,6 +21,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.pivot import services
+from custom_components.pivot.blueprints import TIMER_CONTROL_URL, TIMER_VOICE_URL
 from custom_components.pivot.button import do_bank_toggle
 from custom_components.pivot.const import (
     CONF_MEDIA_PLAYER_ENTITY,
@@ -412,3 +414,16 @@ async def test_an_old_blueprint_cancel_keeps_the_duration(hass, running_timer):
     )
     await hass.async_block_till_done()
     assert _timer(hass) == ("idle", 30.0, 50.0)
+
+
+# --- Setup notification links ------------------------------------------------
+
+def test_setup_notification_imports_released_blueprints():
+    """The links open the import dialog on `stable`, which only moves at a release."""
+    prefix = "https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url="
+    stable = "https://raw.githubusercontent.com/alistairmerritt/pivot-integration/stable/"
+    for link in (TIMER_CONTROL_URL, TIMER_VOICE_URL):
+        assert link.startswith(prefix)
+        target = unquote(link.removeprefix(prefix))
+        assert target.startswith(stable)
+        assert (BLUEPRINTS.parent.parent / target.removeprefix(stable)).is_file()

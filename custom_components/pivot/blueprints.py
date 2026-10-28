@@ -7,6 +7,7 @@ persistent notification on first setup to point users to the import links.
 from __future__ import annotations
 
 import logging
+from urllib.parse import quote
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -15,14 +16,25 @@ from .const import CONF_DEVICE_SUFFIX, CONF_FRIENDLY_NAME
 
 _LOGGER = logging.getLogger(__name__)
 
-TIMER_CONTROL_URL = (
+# The `stable` branch, not `main`: it only moves when a release is published
+# (.github/workflows/stable.yml), so an import never picks up unreleased work.
+_BLUEPRINT_BASE = (
     "https://raw.githubusercontent.com/alistairmerritt/pivot-integration"
-    "/main/blueprints/automation/pivot_timer.yaml"
+    "/stable/blueprints/automation"
 )
-TIMER_VOICE_URL = (
-    "https://raw.githubusercontent.com/alistairmerritt/pivot-integration"
-    "/main/blueprints/automation/pivot_timer_voice.yaml"
-)
+
+
+def _import_link(file_name: str) -> str:
+    """My Home Assistant link that opens the blueprint import dialog."""
+    url = f"{_BLUEPRINT_BASE}/{file_name}"
+    return (
+        "https://my.home-assistant.io/redirect/blueprint_import/"
+        f"?blueprint_url={quote(url, safe='')}"
+    )
+
+
+TIMER_CONTROL_URL = _import_link("pivot_timer.yaml")
+TIMER_VOICE_URL = _import_link("pivot_timer_voice.yaml")
 
 
 async def install_blueprints(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -46,8 +58,9 @@ async def install_blueprints(hass: HomeAssistant, entry: ConfigEntry) -> None:
                     f"(one-time per Home Assistant instance — not per device):\n\n"
                     f"- [Pivot - Timer Control]({TIMER_CONTROL_URL})\n"
                     f"- [Pivot - Timer - Voice]({TIMER_VOICE_URL})\n\n"
-                    f"You can re-import at any time to pick up blueprint updates "
-                    f"without needing an integration update."
+                    f"When a Pivot update changes a blueprint, the release notes "
+                    f"say so: use **Re-import blueprint** on it to pick up the "
+                    f"new version."
                 ),
                 "notification_id": f"pivot_setup_{suffix}",
             },

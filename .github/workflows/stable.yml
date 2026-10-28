@@ -1,0 +1,29 @@
+name: Move stable
+
+# The blueprint import links point at the `stable` branch, not `main`, so
+# people only ever import released blueprints and "Re-import blueprint" in
+# Home Assistant picks up the next release. This moves `stable` to each
+# release as it is published. Prereleases leave it where it is.
+#
+# A release workflow runs from the tagged commit, so a release only moves
+# `stable` if its commit contains this file.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  stable:
+    name: Move stable to the release
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # A plain push, not a force push: git refuses one that would move
+      # `stable` backwards or onto another line of history, and the failed
+      # run says so.
+      - run: git push origin "HEAD:refs/heads/stable"
