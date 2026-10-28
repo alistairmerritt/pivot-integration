@@ -46,6 +46,9 @@ variables:
   duration_entity: number.{{ suffix }}_timer_duration
   bank_value_entity: number.{{ suffix }}_bank_{{ bank | int }}_value
   dim_switch_entity: switch.{{ suffix }}_dim_when_idle
+  show_value_entity: switch.{{ suffix }}_show_control_value
+  timer_restore_show_value_entity: text.{{ suffix }}_timer_restore_show_value
+  timer_restore_dim_entity: text.{{ suffix }}_timer_restore_dim
   timer_ringing_entity: !input timer_ringing_entity
 
 mode: queued
@@ -261,6 +264,20 @@ actions:
               entity_id: "{{ timer_state_entity }}"
             data:
               option: running
+          # Save Dim LEDs When Idle and Show Control Value as they are now, to
+          # put back when the timer ends: the timer changes them while it runs.
+          # Saved with or without a bank, because the firmware restores Dim
+          # LEDs When Idle from here when an alarm is dismissed.
+          - action: text.set_value
+            target:
+              entity_id: "{{ timer_restore_dim_entity }}"
+            data:
+              value: "{{ 'off' if is_state(dim_switch_entity, 'off') else 'on' }}"
+          - action: text.set_value
+            target:
+              entity_id: "{{ timer_restore_show_value_entity }}"
+            data:
+              value: "{{ 'off' if is_state(show_value_entity, 'off') else 'on' }}"
           - if:
               - condition: template
                 value_template: "{{ bank | int(0) > 0 }}"
@@ -459,9 +476,29 @@ actions:
               - condition: template
                 value_template: "{{ bank | int(0) > 0 }}"
             then:
-              - action: switch.turn_on
+              # Dim LEDs When Idle back as it was before the timer. On if
+              # nothing was saved: a timer started by an older blueprint.
+              - action: "switch.turn_{{ 'off' if is_state(timer_restore_dim_entity, 'off') else 'on' }}"
                 target:
                   entity_id: "{{ dim_switch_entity }}"
+              - action: text.set_value
+                target:
+                  entity_id: "{{ timer_restore_dim_entity }}"
+                data:
+                  value: ""
+              # Show Control Value too: a press starts a timer by turning it on.
+              - if:
+                  - condition: template
+                    value_template: "{{ is_state(timer_restore_show_value_entity, 'off') }}"
+                then:
+                  - action: switch.turn_off
+                    target:
+                      entity_id: "{{ show_value_entity }}"
+              - action: text.set_value
+                target:
+                  entity_id: "{{ timer_restore_show_value_entity }}"
+                data:
+                  value: ""
           - if:
               - condition: template
                 value_template: "{{ tts_entity | length > 0 and not is_state(mute_entity, 'on') }}"

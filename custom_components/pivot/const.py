@@ -377,11 +377,13 @@ def get_timer_select_definitions(suffix: str) -> list[dict]:
 
 def get_timer_text_definitions(suffix: str) -> list[dict]:
     """
-    Timer end-time text entity (disabled by default).
+    Timer text entities, written only by the timer blueprints.
 
-    Stores the ISO-8601 end timestamp while the timer is running,
-    "P{seconds}" of remaining time while paused, or "" when idle.
-    Updated exclusively by the pivot_timer blueprint.
+    timer_end (disabled by default) stores the ISO-8601 end timestamp while
+    the timer is running, "P{seconds}" of remaining time while paused, or ""
+    when idle. The two restore entities hold Show Control Value and Dim LEDs
+    When Idle as they were when the timer started, so they can be put back
+    when it ends. They are enabled by default so that works without setup.
     """
     return [
         {
@@ -404,7 +406,17 @@ def get_timer_text_definitions(suffix: str) -> list[dict]:
             "icon": "mdi:restore",
             "initial": "",
             "max_length": 3,
-            "entity_registry_enabled_default": False,
+            "entity_category": "diagnostic",
+        },
+        {
+            "platform": "text",
+            "key": "timer_restore_dim",
+            "unique_id": entity_unique_id(suffix, "timer_restore_dim"),
+            "entity_id": entity_id("text", suffix, "timer_restore_dim"),
+            "name": "Timer Restore Dim",
+            "icon": "mdi:restore",
+            "initial": "",
+            "max_length": 3,
             "entity_category": "diagnostic",
         },
     ]

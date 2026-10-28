@@ -133,7 +133,13 @@ async def _cancel_fallback(
     # switch to idle would reset the timer to 1 minute.
     await _call("number", "set_value", {"entity_id": f"number.{suffix}_bank_{bank}_value", "value": 0})
     await _call("select", "select_option", {"entity_id": state_eid, "option": "idle"})
-    await _call("switch", "turn_on", {"entity_id": f"switch.{suffix}_dim_when_idle"})
+    # Dim LEDs When Idle back as it was before the timer; on if nothing was
+    # saved, as a timer started by an older blueprint expects.
+    dim_restore_eid = f"text.{suffix}_timer_restore_dim"
+    dim_restore = hass.states.get(dim_restore_eid)
+    dim_service = "turn_off" if dim_restore is not None and dim_restore.state == "off" else "turn_on"
+    await _call("switch", dim_service, {"entity_id": f"switch.{suffix}_dim_when_idle"})
+    await _call("text", "set_value", {"entity_id": dim_restore_eid, "value": ""})
     restore_eid = f"text.{suffix}_timer_restore_show_value"
     restore = hass.states.get(restore_eid)
     if restore is not None and restore.state == "off":

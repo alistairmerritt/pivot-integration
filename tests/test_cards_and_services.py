@@ -151,6 +151,22 @@ async def test_timer_cancel_presses_long_and_falls_back(hass, pivot_with_timer):
     assert hass.states.get(f"text.{SUFFIX}_timer_restore_show_value").state == ""
 
 
+async def test_timer_cancel_fallback_puts_dim_back(hass, pivot_with_timer):
+    """Dim LEDs When Idle goes back to the value saved at the start, not always on."""
+    await _start_fake_timer(hass, restore_show_value="off")
+    await hass.services.async_call(
+        "text", "set_value", {"entity_id": f"text.{SUFFIX}_timer_restore_dim", "value": "off"}, blocking=True,
+    )
+
+    with patch.object(services, "CANCEL_FALLBACK_SECS", 0.2):
+        await hass.services.async_call(DOMAIN, "timer_cancel", {"device": SUFFIX}, blocking=True)
+        await hass.async_block_till_done()
+
+    assert hass.states.get(f"select.{SUFFIX}_timer_state").state == "idle"
+    assert hass.states.get(f"switch.{SUFFIX}_dim_when_idle").state == "off"
+    assert hass.states.get(f"text.{SUFFIX}_timer_restore_dim").state == ""
+
+
 async def test_timer_cancel_leaves_blueprint_result_alone(hass, pivot_with_timer):
     """When the blueprint resets the timer itself, the fallback does nothing more."""
     await _start_fake_timer(hass, restore_show_value="on")

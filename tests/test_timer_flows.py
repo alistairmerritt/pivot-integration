@@ -6,7 +6,8 @@ Home Assistant's handling of that one state change: where the 0.0.95 cancel
 bug hid, and where tests that fire the event directly never look. Knob turns
 are bare-context writes to the bank value, as the firmware's are. A template
 switch stands in for the firmware's timer_ringing switch: turning it off
-while the timer is alerting resets it to idle, as the firmware does.
+while the timer is alerting resets it to idle and puts Dim LEDs When Idle
+back as it was, as firmware v0.0.30 does.
 """
 import asyncio
 import shutil
@@ -48,6 +49,8 @@ GAUGE = f"number.{SUFFIX}_bank_4_value"
 ACTIVE = f"number.{SUFFIX}_active_bank"
 SHOW_VALUE = f"switch.{SUFFIX}_show_control_value"
 DIM = f"switch.{SUFFIX}_dim_when_idle"
+RESTORE_DIM = f"text.{SUFFIX}_timer_restore_dim"
+RESTORE_SHOW = f"text.{SUFFIX}_timer_restore_show_value"
 
 
 @dataclass
@@ -142,7 +145,8 @@ async def _rig(hass, tmp_path, freezer, **control_inputs) -> Rig:
     await hass.async_block_till_done()
 
     speech = async_mock_service(hass, "tts", "speak")
-    # The firmware's timer_ringing switch: off while alerting puts the timer back to idle.
+    # The firmware's timer_ringing switch: off while alerting puts the timer
+    # back to idle and Dim LEDs When Idle back from its saved value.
     assert await async_setup_component(hass, "template", {"template": [{"switch": [{
         "name": f"{SUFFIX}_timer_ringing",
         "unique_id": "timer_ringing",
@@ -151,7 +155,9 @@ async def _rig(hass, tmp_path, freezer, **control_inputs) -> Rig:
             "if": [{"condition": "state", "entity_id": STATE, "state": "alerting"}],
             "then": [
                 {"action": "select.select_option", "target": {"entity_id": STATE}, "data": {"option": "idle"}},
-                {"action": "switch.turn_on", "target": {"entity_id": DIM}},
+                {"action": f"switch.turn_{{{{ 'off' if is_state('{RESTORE_DIM}', 'off') else 'on' }}}}",
+                 "target": {"entity_id": DIM}},
+                {"action": "text.set_value", "target": {"entity_id": RESTORE_DIM}, "data": {"value": ""}},
             ],
         }],
     }]}]})
@@ -247,8 +253,8 @@ async def test_press_start_pause_resume_and_long_press_cancel(rig):
     await rig.press("long_press")
     assert rig.timer == ("idle", 25.0, 0.0)
     assert rig.state(END) == ""
-    # Display Persistent Value goes back to how it was before the timer.
-    assert (rig.state(SHOW_VALUE), rig.state(DIM)) == ("off", "on")
+    # Both settings go back to how they were before the timer.
+    assert (rig.state(SHOW_VALUE), rig.state(DIM)) == ("off", "off")
     assert rig.said[-1] == "Timer cancelled."
     _no_one_minute(rig)
 
@@ -281,7 +287,7 @@ async def test_finish_rings_and_a_press_dismisses(rig):
 
     await rig.press("single_press")
     assert rig.timer == ("idle", 2.0, 0.0)
-    assert rig.state(DIM) == "on"
+    assert rig.state(DIM) == "off"
     # A second press straight after the dismiss is not a new start...
     await rig.press("single_press")
     assert rig.state(STATE) == "idle"
@@ -417,3 +423,102 @@ async def test_voice_timer_switches_to_the_timer_bank(hass, tmp_path, freezer):
     assert (rig.state(STATE), rig.state(ACTIVE)) == ("running", "4.0")
     # Moving the dial to the timer bank must not turn its full gauge into a duration.
     assert rig.state(DURATION) == "20.0"
+
+
+# --- The settings a timer borrows ----------------------------------------------
+# A timer turns Show Control Value on and Dim LEDs When Idle off while it runs.
+# Both go back to how they were, however the timer ends. Until 0.0.97 every
+# end turned Dim LEDs When Idle on, which is off by default.
+
+def _settings(rig: Rig) -> tuple[str, str]:
+    return rig.state(SHOW_VALUE), rig.state(DIM)
+
+
+@pytest.fixture(params=[("off", "off"), ("on", "on")], ids=["both-off", "both-on"])
+async def before(request, rig) -> tuple[str, str]:
+    show, dim = request.param
+    await rig.set("switch", f"turn_{show}", SHOW_VALUE)
+    await rig.set("switch", f"turn_{dim}", DIM)
+    return request.param
+
+
+async def _ended(rig: Rig, before: tuple[str, str]) -> None:
+    assert rig.state(STATE) == "idle"
+    assert _settings(rig) == before
+    assert (rig.state(RESTORE_SHOW), rig.state(RESTORE_DIM)) == ("", "")
+
+
+async def test_settings_after_a_long_press_cancel(rig, before):
+    await rig.press("single_press")
+    assert _settings(rig) == ("on", "off")
+    await rig.press("long_press")
+    await _ended(rig, before)
+
+
+async def test_settings_after_a_pause_and_a_cancel(rig, before):
+    await rig.press("single_press")
+    await rig.press("single_press")
+    assert rig.state(DIM) == "on"  # a paused gauge dims
+    await rig.press("long_press")
+    await _ended(rig, before)
+
+
+async def test_settings_after_an_alarm(rig, before):
+    await rig.set("number", "set_value", DURATION, value=1)
+    await rig.press("single_press")
+    await rig.wait(95)
+    assert rig.state(STATE) == "alerting"
+    await rig.press("single_press")
+    await _ended(rig, before)
+
+
+async def test_settings_after_an_alarm_nobody_stops(rig, before):
+    await rig.set("number", "set_value", DURATION, value=1)
+    await rig.press("single_press")
+    await rig.wait(95)
+    await rig.wait(17 * 60)
+    await _ended(rig, before)
+
+
+async def test_settings_after_15_minutes_paused(rig, before):
+    await rig.press("single_press")
+    await rig.press("single_press")
+    await rig.wait(16 * 60)
+    await _ended(rig, before)
+
+
+async def test_settings_after_a_voice_cancel(rig, before):
+    await rig.say("set a 10 minute timer")
+    await rig.say("cancel the timer")
+    await _ended(rig, before)
+
+
+async def test_settings_after_a_press_start_and_a_voice_cancel(rig, before):
+    """Voice cancel left Show Control Value on, and the next start saved that as the setting."""
+    await rig.press("single_press")
+    await rig.say("cancel the timer")
+    await _ended(rig, before)
+
+
+async def test_settings_after_a_voice_alarm(rig, before):
+    await rig.say("set a 1 minute timer")
+    await rig.wait(95)
+    assert rig.state(STATE) == "alerting"
+    await rig.say("stop the alarm")
+    await _ended(rig, before)
+
+
+async def test_settings_after_a_dashboard_cancel(rig, before):
+    await rig.hass.services.async_call(DOMAIN, "timer_toggle", {"device": SUFFIX}, blocking=True)
+    await rig.settle()
+    await rig.hass.services.async_call(DOMAIN, "timer_cancel", {"device": SUFFIX}, blocking=True)
+    await rig.settle(3)
+    await _ended(rig, before)
+
+
+async def test_a_timer_started_before_the_upgrade_ends_with_dim_on(rig):
+    """No saved value: an older blueprint started it, and turned dim on at the end."""
+    await rig.press("single_press")
+    await rig.set("text", "set_value", RESTORE_DIM, value="")
+    await rig.press("long_press")
+    assert rig.state(DIM) == "on"
