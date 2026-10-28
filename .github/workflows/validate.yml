@@ -41,16 +41,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The current release, and an older one for the pre-2026.10 code paths.
+          # The current release, an older one for the pre-2026.10 code paths,
+          # and the oldest release Pivot supports.
           - ha: "2026.10"
             requirements: requirements_test.txt
+            python: "3.14"
           - ha: "2026.7"
             requirements: requirements_test_2026_7.txt
+            python: "3.14"
+          - ha: "2025.8"
+            requirements: requirements_test_2025_8.txt
+            python: "3.13"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python }}
       - run: pip install -r ${{ matrix.requirements }}
       - run: pytest -q
 

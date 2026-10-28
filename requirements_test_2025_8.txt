@@ -1,0 +1,7 @@
+# Home Assistant 2025.8.0, the oldest release Pivot supports (hacs.json and
+# the docs), so the minimum is tested rather than assumed. Needs Python 3.13.
+pytest-homeassistant-custom-component==0.13.269
+hassil==2.2.3
+home-assistant-intents==2025.7.30
+# The aiodns this Home Assistant pins fails to import with pycares 5.
+pycares<5
